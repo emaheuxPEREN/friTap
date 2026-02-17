@@ -509,8 +509,7 @@ export class GoTLS {
                         send({
                             contentType: "datalog",
                             function: "SSL_write",
-                            data: buf
-                        });
+                        }, buf);
                     }
                 }
             });
@@ -545,8 +544,7 @@ export class GoTLS {
                     send({
                         contentType: "datalog",
                         function: "SSL_read",
-                        data: buf
-                    });
+                    }, buf);
                 }
             });
             this.hooked_functions.add(symbol);

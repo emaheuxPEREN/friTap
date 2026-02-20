@@ -1,128 +1,223 @@
 # Extending friTap
 
-
-
-This project is based on [frida](https://frida.re/) and utilize [frida-compile](https://github.com/frida/frida-compile) in order to generate the frida javascript payload.
-
-
+This project is based on [Frida](https://frida.re/) and uses `frida-compile` (shipped with the official [`frida-tools`](https://github.com/frida/frida-tools) package) to build the Frida JavaScript agent payload.
 
 ## Compiling
 
-For this run our docker compiling instance from the repo root folder:
+There are serveral ways how we can invoke `frida-compile` in order to generate our friTap hooks.
+
+### Recommended: local build via `frida-tools`
+
+Install/update Frida tooling and compile the agent:
 
 ```bash
-$ ./compile_agent.sh
+python -m pip install -U frida frida-tools
+frida-compile agent/ssl_log.ts -o _ssl_log.js
 ```
-Alternative just run frida-compile after setting up your environment to work with frida-compile:
 
+### Deprecated: Docker-based compiler
+
+> **Deprecated:** The Docker-based compile flow is kept for compatibility only and may be removed in a future release.
+> Prefer the local `frida-compile` workflow above.
+
+From the repo root:
 
 ```bash
-$ frida-compile agent/ssl_log.ts -o _ssl_log.js
+./compile_agent.sh
 ```
 
-In order to debug your contribution you can use the debug feature of friTap. Have a look into [our wiki for more information](https://github.com/fkie-cad/friTap/wiki/Debugging-friTap).
+## Debugging
 
-**Note:**  
+To debug your contribution, use the debug feature of friTap. See the
+[friTap wiki](https://github.com/fkie-cad/friTap/wiki/Debugging-friTap) for details.
 
-Starting with **Frida version 17 and above**, language-specific bridges must be installed manually.  
+---
+
+**Note:**
+
+Starting with **Frida 17+**, language-specific bridges must be installed manually.  
 For **friTap**, the following bridges are required:
 
 - [`frida-java-bridge`](https://github.com/frida/frida-java-bridge) – for interacting with Java-based apps on Android
 - [`frida-objc-bridge`](https://github.com/frida/frida-objc-bridge) – for interacting with Objective-C code on iOS/macOS
 
-You can install both bridges using the official `frida-pm` package manager:
+Install both bridges using the official `frida-pm` package manager:
 
 ```bash
- frida-pm install frida-objc-bridge frida-java-bridge
+frida-pm install frida-objc-bridge frida-java-bridge
 ```
 
 
 ## Verifying a socket read or write function
 
-In order to identify shared libaries which could use functions for reading or writing we have serveral possibilites when we attach to the process of interest with frida:
+> Only do this on systems you own or have explicit permission to test.
+
+When identifying candidate I/O functions inside a process, a pragmatic workflow is:
+
+1) attach to the process with the Frida CLI,  
+2) enumerate exports of likely networking libraries (e.g., NSPR, OpenSSL, BoringSSL, libc),  
+3) hook a read/write function and dump the buffers.
+
+### Attach to the process
+
+Attach to an already running process (recommended for quick exploration):
+
 ```bash
-sudo frida --no-pause thunderbird
+sudo frida -n thunderbird
 ```
 
-At first we can look for modules (shared libries) with functions that looks intereseting for our purpose:
+(You can also load a script file directly with `-l`, and Frida CLI supports reloading while iterating.)
+
+### Enumerate “read/write” candidates in a module
+
+Example: NSPR on Linux (`libnspr4.so`):
 
 ```javascript
-Process.getModuleByName("libnspr4.so").enumerateExports().filter(exports => exports.name.toLowerCase().includes("read"))
+const m = Process.getModuleByName("libnspr4.so");
+m.enumerateExports()
+  .filter(e => e.type === "function" && /read|write/i.test(e.name))
+  .forEach(e => console.log(`${e.name} @ ${e.address}`));
 ```
 
-Then we can create a simple hook which print us a hexdump of the traffic which  comes through this function
-```javascript
+### Hook `PR_Read` and print a hexdump of inbound data
 
-Interceptor.attach(Module.getExportByName('libnspr4.so', 'PR_Read'), { 
-  onEnter(args) { 
-    console.log("hooking read func"); 
-    var addr = Memory.alloc(128); 
-    var getpeername = new NativeFunction(Module.getExportByName('libnspr4.so', 'PR_GetPeerName'), "int", ["pointer", "pointer"]) 
-    getpeername(args[0],addr); 
-     
-    if(addr === null){ 
-        return; 
-    } 
-    console.log("ip: "+addr.ip); 
-  }, 
-  onLeave(retval) { 
- 
-  } 
-}); 
+NSPR `PR_Read(fd, buf, amount)` fills `buf` and returns the number of bytes read. That means: capture pointers in `onEnter()`, and dump in `onLeave()` using the returned length.
+
+```javascript
+const PR_Read = Module.getExportByName("libnspr4.so", "PR_Read");
+
+Interceptor.attach(PR_Read, {
+  onEnter(args) {
+    this.buf = args[1];
+    this.requested = args[2].toInt32();
+  },
+  onLeave(retval) {
+    const n = retval.toInt32();
+    if (n <= 0) return;
+
+    const dumpLen = Math.min(n, 256); // avoid huge logs
+    console.log(`PR_Read(requested=${this.requested}) -> ${n} bytes`);
+    console.log(hexdump(this.buf, { length: dumpLen, header: true, ansi: true }));
+  }
+});
 ```
 
+### Hook `PR_Write` and print a hexdump of outbound data
 
-Another possibility is to use frida-trace or a debugger of our choice. Besides this we are currently working on adding new library by a known offset(currently under development).
-
-## Looking for SSL objects in a process
-
-Sometimes when adding a new library or a library to a new platform it might help to have a look for certain functions names in all modules loaded from the process we are analyzing. In those cases the following snipped might help:
+For a write call, the buffer already contains the bytes being sent, so dumping in `onEnter()` is usually enough:
 
 ```javascript
-modules = Process.enumerateModules()
-for(let i=0; i < modules.length; i++){
-  ssl_object = JSON.stringify(Process.getModuleByName(modules[i].name).enumerateExports().filter(exports => exports.name.toLowerCase().includes("ssl")));
-  if(ssl_object.length > 2){
-    console.log(modules[i].name + " :\n" + ssl_object+ "\n");
+const PR_Write = Module.getExportByName("libnspr4.so", "PR_Write");
+
+Interceptor.attach(PR_Write, {
+  onEnter(args) {
+    const buf = args[1];
+    const n = args[2].toInt32();
+    if (n <= 0) return;
+
+    const dumpLen = Math.min(n, 256);
+    console.log(`PR_Write(${n} bytes)`);
+    console.log(hexdump(buf, { length: dumpLen, header: true, ansi: true }));
+  }
+});
+```
+
+### Notes / alternatives
+
+- Dumping at `PR_Read`/`PR_Write` level may show **encrypted TLS records** (depending on where you hook). If you want plaintext, you typically hook *above* the encryption boundary (library-specific).
+- For a quick “is this function even called?” sanity check, you can also use `frida-trace` to generate handlers and observe call frequency.
+- If your target library is stripped or doesn’t export what you expect, `enumerateExports()` won’t help; consider `enumerateSymbols()` (availability depends on platform).
+
+---
+
+## Looking for SSL-related exports in a process
+
+If you’re bringing up a new library/platform, it can help to scan loaded modules for exported symbol names containing `ssl` (or `tls`, `handshake`, etc.). Keep in mind: **exports only**; stripped libs often won’t expose much.
+
+```javascript
+for (const mod of Process.enumerateModules()) {
+  const hits = mod.enumerateExports()
+    .filter(e => e.type === "function" && /ssl/i.test(e.name));
+
+  if (hits.length > 0) {
+    console.log(`\n${mod.name}:`);
+    hits.forEach(h => console.log(`  ${h.name}`));
   }
 }
 ```
 
-This is just a one-line to do the same:
+This is clearer and faster than repeatedly `JSON.stringify()`-ing results.
 
-```javascript
-Process.enumerateModules().forEach( (element) => { if(JSON.stringify(Process.getModuleByName(element.name).enumerateExports().filter(exports => exports.name.toLowerCase().includes("ssl"))).length > 2){ console.log(element.name + " : \n" + JSON.string
-ify(Process.getModuleByName(element.name).enumerateExports().filter(exports => exports.name.toLowerCase().includes("ssl"))));} });
-```
-
+---
 
 ## Common errors when compiling changes
 
-- **util missing error**:
+### TS2307: Cannot find module `util` (or types)
 
-```bash
-$ frida-compile agent/ssl_log.ts -o _ssl_log.js
-[TypeScript error: /...../fritap/agent/bouncycastle.ts(3,25): Error TS2307: Cannot find module 'util' or its corresponding type declarations.] {
+Example:
 
+```text
+Error TS2307: Cannot find module 'util' or its corresponding type declarations.
 ```
 
-as this message indicates the util package is missing. Simply install it with npm:
+What’s going on:
+- TypeScript can’t resolve the module and/or its typings.
+- In Frida agents, **Node built-ins aren’t guaranteed** at runtime unless you bundle/polyfill them.
 
+Practical fixes (pick what matches your actual usage):
+
+**A) You only need TypeScript typings for Node core modules**
 ```bash
-$ npm install util
+npm i -D @types/node
 ```
 
-- **Java missing error**:
-
-```bash
-$ frida-compile agent/ssl_log.ts -o _ssl_log.js
-[TypeScript error: ../fritap/agent/bouncycastle.ts(4,5): Error TS2304: Cannot find name 'Java'.] {
-....
+Then ensure your `tsconfig.json` includes Node types, e.g.:
+```json
+{
+  "compilerOptions": {
+    "types": ["frida-gum", "node"]
+  }
+}
 ```
 
-in this case the dependencies for the development are missing. This can easily fixed by invoking the following command inside the folder friTap:
-
+**B) You need a runtime polyfill/bundled module**
 ```bash
-$ npm install .
+npm i util
 ```
 
+(That installs a userland `util` package that bundlers can include.)
+
+### TS2304 / runtime error: `Java` is not defined
+
+You can hit this in two different ways:
+
+**A) Compile-time (TypeScript): `Cannot find name 'Java'`**  
+This usually means your Frida typings are missing. Ensure typings are installed and enabled:
+
+```bash
+npm i -D @types/frida-gum
+```
+
+And in `tsconfig.json`:
+```json
+{
+  "compilerOptions": {
+    "types": ["frida-gum"]
+  }
+}
+```
+
+**B) Runtime (Frida 17+): `ReferenceError: 'Java' is not defined`**  
+Starting with **Frida 17**, bridges are no longer bundled in GumJS for *agent bundles*; you must install/import them explicitly (REPL / `frida-trace` are special-cased for compatibility).
+
+Fix (agent bundle):
+```bash
+frida-pm install frida-java-bridge
+```
+
+And in your agent:
+```ts
+import Java from "frida-java-bridge";
+```
+
+(Analogous for ObjC: `frida-objc-bridge`.)

@@ -7,7 +7,7 @@ export class WolfSSL_Windows extends WolfSSL {
 
     constructor(public moduleName:string, public socket_library:String, is_base_hook: boolean){
         let mapping:{ [key: string]: Array<string> } = {};
-        mapping[`${moduleName}`] = ["wolfSSL_read", "wolfSSL_write", "wolfSSL_get_fd", "wolfSSL_get_session", "wolfSSL_connect", "wolfSSL_KeepArrays"]
+        mapping[`*${moduleName}*`] = ["wolfSSL_read", "wolfSSL_write", "wolfSSL_get_fd", "wolfSSL_get_session", "wolfSSL_connect", "wolfSSL_KeepArrays"]
         mapping[`*${socket_library}*`] = ["getpeername", "getsockname", "ntohs", "ntohl"]
         super(moduleName,socket_library, mapping);
     }

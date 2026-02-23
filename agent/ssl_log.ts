@@ -177,6 +177,12 @@ const antiroot_recv_state = recv('antiroot', value => {
 });
 antiroot_recv_state.wait();/* */
 
+send("install_lsass_hook")
+const install_lsass_hook_state = recv('install_lsass_hook', value => {
+    install_lsass_hook = value.payload;
+});
+install_lsass_hook_state.wait();
+
 
 
 /*

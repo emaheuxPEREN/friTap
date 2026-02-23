@@ -7,7 +7,7 @@ export class OpenSSL_BoringSSL_Windows extends OpenSSL_BoringSSL {
 
     constructor(public moduleName:string, public socket_library:String, is_base_hook: boolean){
         let mapping:{ [key: string]: Array<string> } = {};
-        mapping[`${moduleName}`] = ["SSL_read", "SSL_write", "SSL_get_fd", "SSL_get_session", "SSL_SESSION_get_id", "SSL_new"]
+        mapping[`*${moduleName}*`] = ["SSL_read", "SSL_write", "SSL_get_fd", "SSL_get_session", "SSL_SESSION_get_id", "SSL_new"]
         mapping[`*${socket_library}*`] = ["getpeername", "getsockname", "ntohs", "ntohl"]
         super(moduleName,socket_library, is_base_hook, mapping);
     }

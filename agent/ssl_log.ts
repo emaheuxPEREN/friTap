@@ -171,11 +171,6 @@ const exp_recv_state = recv('experimental', value => {
 });
 exp_recv_state.wait();
 
-send("anti")
-const antiroot_recv_state = recv('antiroot', value => {
-    anti_root = value.payload;
-});
-antiroot_recv_state.wait();/* */
 
 send("install_lsass_hook")
 const install_lsass_hook_state = recv('install_lsass_hook', value => {
@@ -184,6 +179,19 @@ const install_lsass_hook_state = recv('install_lsass_hook', value => {
 install_lsass_hook_state.wait();
 
 
+send("anti")
+const antiroot_recv_state = recv('antiroot', value => {
+    anti_root = value.payload;
+});
+antiroot_recv_state.wait();
+/*
+ * STARTUP HANDSHAKE: These send/recv pairs request config values from the Python host.
+ * Each send() requests a value; recv().wait() blocks until the host responds.
+ *
+ * IMPORTANT: "anti" MUST be the LAST message in this sequence. The Python handler
+ * (ssl_logger.py) sets self.startup = False upon receiving it, disabling all
+ * subsequent startup handlers. New startup messages must go BEFORE "anti".
+ */
 
 /*
 

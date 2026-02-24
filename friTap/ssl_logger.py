@@ -387,6 +387,11 @@ class SSL_Logger():
         message: A dictionary containing the message "type" and other fields
             dependent on message type.
         data: The string of captured decrypted data or the caputured decryption keys
+
+        IMPORTANT: 'anti' MUST be the LAST startup message sent by the agent (ssl_log.ts).
+        self.startup = False here terminates the startup handshake. Any startup message
+        sent AFTER 'anti' will never receive a response, causing a deadlock in the agent.
+        New startup messages must be placed BEFORE 'anti' in both ssl_log.ts and here.
         """
 
 

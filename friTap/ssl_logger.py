@@ -444,6 +444,12 @@ class SSL_Logger():
             if payload["contentType"] == "console_dev" and payload["console_dev"]:
                 if len(payload["console_dev"]) > 3:
                     self.logger.debug(payload["console_dev"])
+            elif payload["contentType"] in ("console_error", "console_warn", "console_info", "console_debug"):
+                msg = payload.get("message", "")
+                if msg and len(msg) > 3:
+                    level = payload.get("level", "debug")
+                    log_func = getattr(self.logger, level, self.logger.debug)
+                    log_func(msg)
             else:
                 self.print_fritap_message(message, data)
         if self.verbose:

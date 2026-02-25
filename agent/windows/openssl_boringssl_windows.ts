@@ -2,30 +2,104 @@
 import {OpenSSL_BoringSSL } from "../ssl_lib/openssl_boringssl.js";
 import { socket_library } from "./windows_agent.js";
 import { devlog, devlog_error } from "../util/log.js";
+import { isSymbolAvailable } from "../shared/shared_functions.js";
 
 export class OpenSSL_BoringSSL_Windows extends OpenSSL_BoringSSL {
 
     constructor(public moduleName:string, public socket_library:String, is_base_hook: boolean){
         let mapping:{ [key: string]: Array<string> } = {};
         mapping[`*${moduleName}*`] = ["SSL_read", "SSL_write", "SSL_get_fd", "SSL_get_session", "SSL_SESSION_get_id", "SSL_new"]
+        // Add key extraction symbols only if exported by this build
+        if (isSymbolAvailable(moduleName, "SSL_CTX_set_keylog_callback")) {
+            mapping[`*${moduleName}*`].push("SSL_CTX_set_keylog_callback")
+        }
+        if (isSymbolAvailable(moduleName, "SSL_get_SSL_CTX")) {
+            mapping[`*${moduleName}*`].push("SSL_get_SSL_CTX")
+        }
+        if (isSymbolAvailable(moduleName, "SSL_CTX_new")) {
+            mapping[`*${moduleName}*`].push("SSL_CTX_new")
+        }
         mapping[`*${socket_library}*`] = ["getpeername", "getsockname", "ntohs", "ntohl"]
         super(moduleName,socket_library, is_base_hook, mapping);
     }
 
-    /*
-    SSL_CTX_set_keylog_callback not exported by default on windows. 
-
-    We need to find a way to install the callback function for doing that
-
-	Alternatives?:SSL_export_keying_material, SSL_SESSION_get_master_key
-    */
     install_tls_keys_callback_hook(){
-        // install hooking for windows
+        // Guard: only proceed if SSL_CTX_set_keylog_callback was resolved
+        const addrs = this.addresses[this.module_name];
+        if (!addrs["SSL_CTX_set_keylog_callback"]) {
+            devlog("SSL_CTX_set_keylog_callback not available for " + this.module_name + ", skipping key extraction");
+            return;
+        }
+
+        this.SSL_CTX_set_keylog_callback = new NativeFunction(addrs["SSL_CTX_set_keylog_callback"], "void", ["pointer", "pointer"]);
+        var instance = this;
+
+        // Hook SSL_new to install keylog callback on each new SSL context
+        try {
+            Interceptor.attach(addrs["SSL_new"], {
+                onEnter(args) {
+                    try {
+                        instance.SSL_CTX_set_keylog_callback(args[0], instance.keylog_callback);
+                    } catch (e) {
+                        devlog_error(`Error setting keylog callback in SSL_new: ${e}`);
+                    }
+                }
+            });
+        } catch (e) {
+            devlog_error(`Failed to hook SSL_new for key extraction: ${e}`);
+        }
+
+        // Hook SSL_CTX_new if available — fallback for contexts created before SSL_new hook
+        if (addrs["SSL_CTX_new"]) {
+            try {
+                Interceptor.attach(addrs["SSL_CTX_new"], {
+                    onLeave(retval) {
+                        try {
+                            if (!retval.isNull()) {
+                                instance.SSL_CTX_set_keylog_callback(retval, instance.keylog_callback);
+                            }
+                        } catch (e) {
+                            devlog_error(`Error setting keylog callback in SSL_CTX_new: ${e}`);
+                        }
+                    }
+                });
+            } catch (e) {
+                devlog_error(`Failed to hook SSL_CTX_new for key extraction: ${e}`);
+            }
+        }
+
+        // Intercept app-set keylog callbacks
+        try {
+            Interceptor.attach(addrs["SSL_CTX_set_keylog_callback"], {
+                onEnter(args) {
+                    let callback_func = args[1];
+                    Interceptor.attach(callback_func, {
+                        onEnter(args) {
+                            var message: { [key: string]: string | number | null } = {};
+                            message["contentType"] = "keylog";
+                            message["keylog"] = args[1].readCString();
+                            send(message);
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            devlog_error(`Failed to hook SSL_CTX_set_keylog_callback interception: ${e}`);
+        }
     }
 
     execute_hooks(){
-        this.install_plaintext_read_hook();
-        this.install_plaintext_write_hook();
+        try { this.install_plaintext_read_hook(); }
+        catch(e) { devlog_error(`Failed to install plaintext read hook: ${e}`); }
+
+        try { this.install_plaintext_write_hook(); }
+        catch(e) { devlog_error(`Failed to install plaintext write hook: ${e}`); }
+
+        try { this.install_tls_keys_callback_hook(); }
+        catch(e) { devlog_error(`Failed to install TLS keys callback hook: ${e}`); }
+
+        try { this.install_extended_hooks(); }
+        catch(e) { devlog_error(`Failed to install extended hooks: ${e}`); }
     }
 
 }

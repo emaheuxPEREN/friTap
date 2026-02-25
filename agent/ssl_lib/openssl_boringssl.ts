@@ -222,6 +222,7 @@ export class OpenSSL_BoringSSL {
     
                 
                     var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], enable_default_fd)
+                    if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_read"
                     this.message = message
@@ -307,6 +308,7 @@ export class OpenSSL_BoringSSL {
                         return
                     }
                     var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], enable_default_fd)
+                    if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_write"
                     message["contentType"] = "datalog"
@@ -466,6 +468,7 @@ export class OpenSSL_BoringSSL {
                     }
 
                     var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], enable_default_fd)
+                    if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_read_ex"
                     this.message = message
@@ -517,6 +520,7 @@ export class OpenSSL_BoringSSL {
                         return
                     }
                     var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], enable_default_fd)
+                    if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_write_ex"
                     message["contentType"] = "datalog"

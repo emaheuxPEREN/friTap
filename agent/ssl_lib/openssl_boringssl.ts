@@ -1,6 +1,6 @@
 import { readAddresses, getPortsAndAddresses, getBaseAddress, isSymbolAvailable, checkNumberOfExports, calculateZeroBytePercentage } from "../shared/shared_functions.js";
 import { getOffsets, offsets, enable_default_fd } from "../ssl_log.js";
-import { devlog, devlog_error, log, devlog_info } from "../util/log.js";
+import { devlog, devlog_error, log, devlog_info, devlog_warn } from "../util/log.js";
 import { ObjC } from "../shared/objclib.js";
 
 class ModifyReceiver{
@@ -73,6 +73,7 @@ export class OpenSSL_BoringSSL {
     SSL_get_fd: any;
     SSL_get_session: any;
     static modReceiver: ModifyReceiver;
+    static fd_fallback_warned: Set<string> = new Set();
     do_read_write_hooks: boolean = true; // we want to hook read and write by default
 
     is_base_hook: boolean;
@@ -214,25 +215,28 @@ export class OpenSSL_BoringSSL {
                 {
                     this.bufLen = args[2].toInt32()
                     this.fd = instance.SSL_get_fd(args[0])
+                    this.use_default_fd = enable_default_fd
                     if(this.fd < 0 && enable_default_fd == false) {
+                        if (!OpenSSL_BoringSSL.fd_fallback_warned.has(current_module_name)) {
+                            OpenSSL_BoringSSL.fd_fallback_warned.add(current_module_name)
+                            devlog_warn("[SSL_read] SSL_get_fd returned " + this.fd + " for " + current_module_name
+                                + ". Plaintext data will NOT be captured. Use --enable_default_fd (-ed) to capture with fallback addresses (127.0.0.1).")
+                        }
                         return
                     }
-    
-    
-    
-                
-                    var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], enable_default_fd)
+
+                    var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], this.use_default_fd)
                     if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_read"
                     this.message = message
-                    
+
                     this.buf = args[1]
-                
+
                 },
                 onLeave: function (retval: any) {
                     retval |= 0 // Cast retval to 32-bit integer.
-                    if (retval <= 0 || this.fd < 0) {
+                    if (retval <= 0 || (this.fd < 0 && !this.use_default_fd)) {
                         return
                     }
     
@@ -304,16 +308,21 @@ export class OpenSSL_BoringSSL {
                         }
                             
                         }
+                    this.use_default_fd = enable_default_fd
                     if(this.fd < 0 && enable_default_fd == false) {
+                        if (!OpenSSL_BoringSSL.fd_fallback_warned.has(current_module_name)) {
+                            OpenSSL_BoringSSL.fd_fallback_warned.add(current_module_name)
+                            devlog_warn("[SSL_write] SSL_get_fd returned " + this.fd + " for " + current_module_name
+                                + ". Plaintext data will NOT be captured. Use --enable_default_fd (-ed) to capture with fallback addresses (127.0.0.1).")
+                        }
                         return
                     }
-                    var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], enable_default_fd)
+                    var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], this.use_default_fd)
                     if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_write"
                     message["contentType"] = "datalog"
-                    
-    
+
                     if(OpenSSL_BoringSSL.modReceiver.writemod !== null){
                         const newPointer = Memory.alloc(OpenSSL_BoringSSL.modReceiver.writemod.byteLength)
                         newPointer.writeByteArray(OpenSSL_BoringSSL.modReceiver.writemod);                    
@@ -459,32 +468,44 @@ export class OpenSSL_BoringSSL {
             Interceptor.attach(this.addresses[this.moduleName]["SSL_read_ex"],
             {
                 
-                onEnter: function (args: any) 
+                onEnter: function (args: any)
                 {
                     this.bufLen = args[2].toInt32()
                     this.fd = instance.SSL_get_fd(args[0])
+                    this.use_default_fd = enable_default_fd
                     if(this.fd < 0 && enable_default_fd == false) {
+                        if (!OpenSSL_BoringSSL.fd_fallback_warned.has(current_module_name)) {
+                            OpenSSL_BoringSSL.fd_fallback_warned.add(current_module_name)
+                            devlog_warn("[SSL_read_ex] SSL_get_fd returned " + this.fd + " for " + current_module_name
+                                + ". Plaintext data will NOT be captured. Use --enable_default_fd (-ed) to capture with fallback addresses (127.0.0.1).")
+                        }
                         return
                     }
 
-                    var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], enable_default_fd)
+                    var message = getPortsAndAddresses(this.fd as number, true, lib_addesses[current_module_name], this.use_default_fd)
                     if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_read_ex"
                     this.message = message
-                    
+
                     this.buf = args[1]
-                
+                    this.readbytes_ptr = args[3]  // pointer to size_t for actual bytes read
+
                 },
                 onLeave: function (retval: any) {
                     retval |= 0 // Cast retval to 32-bit integer.
-                    if (retval <= 0 || this.fd < 0) {
+                    if (retval <= 0 || (this.fd < 0 && !this.use_default_fd)) {
                         return
                     }
 
-                    this.message["contentType"] = "datalog"  
-                    send(this.message, this.buf.readByteArray(retval))
-                    
+                    var actual_bytes = this.readbytes_ptr.readULong()
+                    if (actual_bytes <= 0) {
+                        return
+                    }
+
+                    this.message["contentType"] = "datalog"
+                    send(this.message, this.buf.readByteArray(actual_bytes))
+
                 }
             });
 
@@ -516,10 +537,16 @@ export class OpenSSL_BoringSSL {
                         }
                             
                         }
+                    this.use_default_fd = enable_default_fd
                     if(this.fd < 0 && enable_default_fd == false) {
+                        if (!OpenSSL_BoringSSL.fd_fallback_warned.has(current_module_name)) {
+                            OpenSSL_BoringSSL.fd_fallback_warned.add(current_module_name)
+                            devlog_warn("[SSL_write_ex] SSL_get_fd returned " + this.fd + " for " + current_module_name
+                                + ". Plaintext data will NOT be captured. Use --enable_default_fd (-ed) to capture with fallback addresses (127.0.0.1).")
+                        }
                         return
                     }
-                    var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], enable_default_fd)
+                    var message = getPortsAndAddresses(this.fd as number, false, lib_addesses[current_module_name], this.use_default_fd)
                     if (message === null) { return; }
                     message["ssl_session_id"] = instance.getSslSessionId(args[0])
                     message["function"] = "SSL_write_ex"

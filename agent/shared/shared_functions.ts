@@ -1,4 +1,4 @@
-import { log, devlog, devlog_error } from "../util/log.js";
+import { log, devlog, devlog_error, devlog_warn } from "../util/log.js";
 import { AF_INET, AF_INET6, AddressFamilyMapping, unwantedFDs, ModuleHookingType } from "./shared_structures.js";
 import { Java, JavaWrapper } from "./javalib.js";
 
@@ -263,9 +263,9 @@ export function getPortsAndAddresses(sockfd: number, isRead: boolean, methodAddr
     if (enable_default_fd && (sockfd < 0)){
         
         message["src" + "_port"] = 1234
-        message["src" + "_addr"] = "127.0.0.1"
+        message["src" + "_addr"] = 0x7F000001    // 127.0.0.1 as uint32
         message["dst" + "_port"] = 2345
-        message["dst" + "_addr"] = "127.0.0.1"
+        message["dst" + "_addr"] = 0x7F000001    // 127.0.0.1 as uint32
         message["ss_family"] = "AF_INET"
 
         return message
@@ -318,15 +318,12 @@ export function getPortsAndAddresses(sockfd: number, isRead: boolean, methodAddr
                 message["ss_family"] = "AF_INET6"
             }
         } else {
-            // only uncomment this if you really need to debug this
-            //devlog("[-] getPortsAndAddresses resolving error: Only supporting IPv4/6");
-            //devlog(`[-] Inspecting fd: ${sockfd}, Address family: ${family} (${familyName})`);
-            //throw "Only supporting IPv4/6"
-            
             if (!unwantedFDs.has(sockfd)) {
-                //devlog(`Skipping unsupported address family: ${family}:${familyName} (fd: ${sockfd})`);
+                devlog_warn("getPortsAndAddresses: unsupported address family " + family
+                    + " (" + familyName + ") for fd " + sockfd
+                    + ". Skipping this socket. Use --enable_default_fd (-ed) if you need to capture traffic regardless.")
             }
-            unwantedFDs.add(sockfd); // Mark this fd as unwanted
+            unwantedFDs.add(sockfd);
             return null;
         }
     }

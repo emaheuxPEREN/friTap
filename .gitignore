@@ -30,7 +30,7 @@ env/
 .vscode/launch.json
 
 # npm stuff
-package-lock.json # not really needed when working with frida-compile
+package-lock.json
 
 # debian package generation stuff
 deb_dist/

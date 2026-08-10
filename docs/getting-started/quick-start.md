@@ -154,9 +154,6 @@ fritap -v target
 # Debug output
 fritap -do target
 
-# Disable colors
-fritap --no-color target
-
 # Set custom timeout
 fritap --timeout 30 target
 ```

@@ -32,6 +32,9 @@ class DeviceConfig:
     spawn_gating_all: bool = False
     enable_child_gating: bool = False
     timeout: Optional[int] = None
+    # Upper bound (seconds) for the agent's blocking ``script.load()``. Without
+    # it a wedged agent hangs the session silently. ``0`` disables the bound.
+    script_load_timeout: float = 20.0
 
 
 @dataclass
@@ -118,6 +121,12 @@ class HookingConfig:
     # "blink" (hooks toggled so .text stays pristine between scans).
     # (fkie-cad/friTap#64). Default OFF.
     pairip_safe: bool = False
+    # --probe. Dry-run diagnostic: the agent reports which platform branch it
+    # selected and then stops BEFORE installing any hook. Exists because a
+    # target that dies during instrumentation (fkie-cad/friTap#65) leaves the
+    # user with no way to learn how far friTap got. Boolean on purpose — staged
+    # verbosity levels would be a second, redundant knob next to -v/-do.
+    probe: bool = False
     # Override which layer of the HTTP/3 egress-headers fallback chain the
     # agent actually attaches to. "auto" (default) keeps the winner-takes-all
     # logic: quiche-internal QuicSpdyStream::WriteHeaders preferred, then
@@ -254,6 +263,7 @@ class FriTapConfig:
         json_output: Optional[str] = None,
         install_lsass_hook: bool = True,
         timeout: Optional[int] = None,
+        script_load_timeout: float = 20.0,
         backend: str = BackendName.FRIDA,
         protocol: str = "tls",
         proxy: Optional[str] = None,
@@ -266,6 +276,7 @@ class FriTapConfig:
         no_loader_hook: bool = False,
         stealth_loader: bool = False,
         pairip_safe: bool = False,
+        probe: bool = False,
         quic_egress_headers_layer: str = "auto",
         scan_keys_region: Optional[str] = None,
         scan: Optional[str] = None,
@@ -293,6 +304,7 @@ class FriTapConfig:
                 spawn_gating_all=spawn_gating_all,
                 enable_child_gating=enable_child_gating,
                 timeout=timeout,
+                script_load_timeout=script_load_timeout,
             ),
             output=OutputConfig(
                 pcap=pcap_name,
@@ -333,6 +345,7 @@ class FriTapConfig:
                 no_loader_hook=no_loader_hook,
                 stealth_loader=stealth_loader,
                 pairip_safe=pairip_safe,
+                probe=probe,
                 quic_egress_headers_layer=quic_egress_headers_layer,
                 scan_keys_region=scan_keys_region,
             ),
@@ -345,3 +358,30 @@ class FriTapConfig:
             install_lsass_hook=install_lsass_hook,
             proxy=proxy,
         )
+
+
+# Scan-heavy hooking modes legitimately spend far longer inside the agent's
+# top-level code, so the plain bound would fire on a perfectly healthy load.
+_SCAN_HEAVY_TIMEOUT_FACTOR = 3
+
+
+def effective_script_load_timeout(config: "FriTapConfig") -> float | None:
+    """Return the ``script.load()`` bound implied by *config*, or ``None``.
+
+    ``None`` means "no bound" and is returned for any non-positive configured
+    value, so a user can opt out entirely with ``--script-load-timeout 0``.
+
+    The bound is tripled for pattern matching, library scanning and explicit
+    key-region scanning: all three run Memory.scan passes *inside* the agent's
+    top-level code, which makes a slow load expected rather than suspicious.
+    Scaling instead of disabling keeps a wedged agent detectable.
+    """
+    configured = config.device.script_load_timeout
+    if configured <= 0:
+        return None
+
+    hooking = config.hooking
+    scan_heavy = bool(
+        hooking.patterns or hooking.library_scan or hooking.scan_keys_region
+    )
+    return configured * _SCAN_HEAVY_TIMEOUT_FACTOR if scan_heavy else configured

@@ -89,6 +89,16 @@ class BackendError(Exception):
             lines.append(
                 "This is a friTap bug, not your environment. Please file an issue."
             )
+        elif self.category == "script_load_timeout":
+            # The elapsed time and the breadcrumb are the only two facts that
+            # narrow down *where* the agent wedged, so surface both here.
+            lines.append(
+                f"  ↳ agent did not finish loading within "
+                f"{getattr(self, 'elapsed_seconds', 0.0):.1f}s"
+            )
+            crumb = getattr(self, "breadcrumb", "")
+            if crumb:
+                lines.append(f"  ↳ last agent stage: {crumb}")
         elif self.category.startswith("frida_"):
             ctx = self.context
             bits = [f"euid={ctx.euid}"]
@@ -153,6 +163,43 @@ class BackendPermissionDeniedError(BackendError):
 
 class BackendInvalidOperationError(BackendError):
     """The requested operation is invalid in the current state."""
+
+
+class BackendScriptLoadTimeout(BackendError):
+    """``load_script()`` did not return within the allotted time.
+
+    Frida's ``script.load()`` blocks until the agent's top-level code
+    finishes, and the agent blocks there waiting for the host's startup
+    handshake — so a wedged agent (or an unanswered handshake) hangs the
+    whole session with no diagnostic at all. The bound turns that silent
+    hang into this error.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        elapsed_seconds: float = 0.0,
+        bound_seconds: float = 0.0,
+        breadcrumb: str = "",
+        original_exception: Optional[BaseException] = None,
+        context: Optional[BackendErrorContext] = None,
+    ) -> None:
+        super().__init__(
+            message,
+            original_exception=original_exception,
+            category="script_load_timeout",
+            context=context,
+        )
+        self.elapsed_seconds = elapsed_seconds
+        # The bound that actually fired. Carried on the exception because it is
+        # the EFFECTIVE value — tripled for scan-heavy configs — and the CLI only
+        # knows the raw --script-load-timeout the user typed, so reporting that
+        # would tell a --patterns user "bound: 20.0s" for a load killed at 60s.
+        self.bound_seconds = bound_seconds
+        # Filled in by the caller that owns the agent's breadcrumb trail
+        # (SSL_Logger); the backend itself has no visibility into it.
+        self.breadcrumb = breadcrumb
 
 
 # ---------------------------------------------------------------------------
@@ -279,8 +326,20 @@ class Backend(ABC):
         ...
 
     @abstractmethod
-    def load_script(self, script: Any) -> None:
-        """Load/inject the script into the target process."""
+    def load_script(self, script: Any, *, timeout: float | None = None) -> None:
+        """Load/inject the script into the target process.
+
+        Parameters
+        ----------
+        script
+            Script handle from :meth:`create_script`.
+        timeout : float | None
+            Upper bound in seconds for the (potentially blocking) load.
+            ``None`` or ``0`` disables the bound and loads inline on the
+            calling thread. Backends whose load is cheap and synchronous
+            may ignore it; a backend that exceeds the bound raises
+            :class:`BackendScriptLoadTimeout`.
+        """
         ...
 
     @abstractmethod

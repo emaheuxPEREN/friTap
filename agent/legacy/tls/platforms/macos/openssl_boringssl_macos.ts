@@ -6,39 +6,25 @@ import { ObjC } from "../../../../shared/objclib.js";
 import { patterns, isPatternReplaced, experimental } from "../../../../fritap_agent.js";
 import { sendKeylog } from "../../../../shared/shared_structures.js";
 import { executeSSLLibrary } from "../../../shared/shared_functions_legacy.js";
+import { installKeylogCallbackViaCtxWrite } from "../../shared/apple_keylog_offset.js";
+import { enableDeepSymbolResolution } from "../../../../shared/deep_symbol_resolution.js";
 
 export class OpenSSL_BoringSSL_MacOS extends OpenSSL_BoringSSL {
 
     install_tls_keys_callback_hook(){
-        var instance = this;
         //console.log(this.addresses) // currently only for debugging purposes will be removed in future releases
         if (ObjC.available) { // inspired from https://codeshare.frida.re/@andydavies/ios-tls-keylogger/
-            var CALLBACK_OFFSET = 0x2A8;
-
-            var foundationNumber = Process.getModuleByName('CoreFoundation').getExportByName('kCFCoreFoundationVersionNumber')?.readDouble();
-            devlog("Calculating offset to keylog callback based on the FoundationVersionNumber on MacOS: "+foundationNumber)
-            if(foundationNumber == undefined){
-                CALLBACK_OFFSET = 0x2A8;
-                devlog("Installing callback for MacOS < 14 using callback offset: "+CALLBACK_OFFSET);
-            } else if (foundationNumber >= 1751.108 && foundationNumber < 1854) {
-                CALLBACK_OFFSET = 0x2B8; // >= iOS 14.x
-                devlog("Installing callback for MacOS >= 14 using callback offset: "+CALLBACK_OFFSET);
-            } else if (foundationNumber >= 1854 && foundationNumber < 1946.102) {
-                CALLBACK_OFFSET = 0x2F8; // >= iOS 15.x
-                devlog("Installing callback for MacOS >= 15 using callback offset: "+CALLBACK_OFFSET);
-            } else if (foundationNumber >= 1946.102 && foundationNumber <= 1979.1) {
-                CALLBACK_OFFSET = 0x300; // >= iOS 16.x
-                devlog("Installing callback for MacOS >= 16 using callback offset: "+CALLBACK_OFFSET);
-            } else if (foundationNumber > 1979.1) {
-                CALLBACK_OFFSET = 0x2F8; // >= iOS 17.x
-                devlog("Installing callback for MacOS >= 17 using callback offset: "+CALLBACK_OFFSET);
+            // Same mechanism as iOS: Apple does not export
+            // SSL_CTX_set_keylog_callback, so the callback is written into the
+            // SSL_CTX struct. The offset table and the write-time validation are
+            // shared with the iOS path (apple_keylog_offset.ts). The previous
+            // macOS-local table disagreed with its iOS twin for the same OS era.
+            const setInfoCallback = this.addresses[this.module_name]["SSL_CTX_set_info_callback"];
+            if (setInfoCallback === undefined || setInfoCallback === null || setInfoCallback.isNull()) {
+                devlog("[MacOS] SSL_CTX_set_info_callback unresolved — cannot install the keylog callback");
+                return;
             }
-            Interceptor.attach(this.addresses[this.module_name]["SSL_CTX_set_info_callback"], {
-              onEnter: function (args : any) {
-                ptr(args[0]).add(CALLBACK_OFFSET).writePointer(instance.keylog_callback);
-              }
-            });
-
+            installKeylogCallbackViaCtxWrite(setInfoCallback, this.keylog_callback, "MacOS", this.module_name);
           }
 
     }
@@ -84,19 +70,27 @@ export class OpenSSL_From_Python_MacOS extends OpenSSL_BoringSSL {
     }
 
     install_openssl_keys_callback_hook(){
-        this.SSL_CTX_set_keylog_callback = new NativeFunction(this.addresses[this.module_name]["SSL_CTX_set_keylog_callback"], "void", ["pointer", "pointer"]);
         var instance = this;
 
+        const ssl_new_ptr = this.addresses[this.module_name]["SSL_new"];
+        const ssl_get_ctx_ptr = this.addresses[this.module_name]["SSL_get_SSL_CTX"];
+        const set_keylog_cb_ptr = this.addresses[this.module_name]["SSL_CTX_set_keylog_callback"];
+
+        // Checked BEFORE any NativeFunction is built. new NativeFunction(undefined)
+        // throws, so constructing the keylog setter above this guard made the
+        // guard dead code: a module that lacks SSL_CTX_set_keylog_callback -- a
+        // bundled libssl.1.0.0.dylib, or pre-3.5 LibreSSL, both of which now
+        // route here -- threw out of the async execute_hooks(), where the
+        // caller's .catch reduced it to a single devlog. Net effect was a module
+        // with no hooks and no user-visible message.
+        if (!ssl_new_ptr || !ssl_get_ctx_ptr || !set_keylog_cb_ptr) {
+            devlog_error(`Required functions not found in ${this.module_name}`);
+            return;
+        }
+
+        this.SSL_CTX_set_keylog_callback = new NativeFunction(set_keylog_cb_ptr, "void", ["pointer", "pointer"]);
+
         try {
-
-            const ssl_new_ptr = this.addresses[this.module_name]["SSL_new"];
-            const ssl_get_ctx_ptr = this.addresses[this.module_name]["SSL_get_SSL_CTX"];
-            const set_keylog_cb_ptr = this.addresses[this.module_name]["SSL_CTX_set_keylog_callback"];
-
-            if (!ssl_new_ptr || !ssl_get_ctx_ptr || !set_keylog_cb_ptr) {
-                devlog_error(`Required functions not found in ${this.module_name}`);
-                return;
-            }
             const SSL_get_SSL_CTX = new NativeFunction(ssl_get_ctx_ptr,'pointer', ['pointer']) as (ssl: NativePointer) => NativePointer;
 
             Interceptor.attach(ssl_new_ptr, {
@@ -134,19 +128,24 @@ export class OpenSSL_From_Python_MacOS extends OpenSSL_BoringSSL {
 
 
 
-        // In case a callback is set by the application, we attach to this callback instead
-        // Only succeeds if SSL_CTX_new is available
-        Interceptor.attach(this.addresses[this.module_name]["SSL_CTX_set_keylog_callback"], {
-            onEnter: function (args: any) {
-                let callback_func = args[1];
+        // In case a callback is set by the application, we attach to this callback instead.
+        // Wrapped: this sits outside the try above, so an Interceptor failure here
+        // used to propagate out of the whole hook installation.
+        try {
+            Interceptor.attach(set_keylog_cb_ptr, {
+                onEnter: function (args: any) {
+                    let callback_func = args[1];
 
-                Interceptor.attach(callback_func, {
-                    onEnter: function (args: any) {
-                        sendKeylog(args[1].readCString());
-                    }
-                });
-            }
-        });
+                    Interceptor.attach(callback_func, {
+                        onEnter: function (args: any) {
+                            sendKeylog(args[1].readCString());
+                        }
+                    });
+                }
+            });
+        } catch (e) {
+            devlog_error(`Failed to attach to SSL_CTX_set_keylog_callback in ${instance.module_name}: ${e}`);
+        }
     }
 
 
@@ -168,10 +167,38 @@ export class OpenSSL_From_Python_MacOS extends OpenSSL_BoringSSL {
 }
 
 
+// Opts libboringssl.dylib into exports -> enumerateSymbols() fallback resolution,
+// for parity with every other platform executor. On Apple this is INERT by
+// construction, and deliberately so — this is the struct-write keylog path of
+// fkie-cad/friTap#65 and it must not change behaviour here:
+//   - the library_method_mapping above requests exactly one symbol,
+//     SSL_CTX_set_info_callback, and Apple EXPORTS it ('T _SSL_CTX_set_info_callback'
+//     in nm on the iOS 17.0 / 17.5 / 18.6 / 26.2 simulator runtimes, which ship the
+//     same libboringssl revision as the macOS release of the same year), so
+//     readAddresses resolves it in the exports pass. The symbol-table fallback only
+//     fills entries the exports pass MISSED and never overwrites an export hit.
+//   - the base constructor's isSymbolAvailable() probes cannot flip either:
+//     SSL_CTX_new is exported ('T') on all four runtimes, and SSL_read_ex /
+//     SSL_write_ex do not exist in BoringSSL at all (absent from nm entirely), so
+//     is_openssl stays false — and install_extended_hooks(), its only consumer, is
+//     not called by this executor anyway.
+//   - the keylog offset derivation in apple_keylog_offset.ts calls
+//     Module.enumerateSymbols() directly for the LOCAL ('t')
+//     _SSL_CTX_set_keylog_callback; it does not go through this opt-in.
+// Adding SSL_CTX_set_keylog_callback to the mapping, i.e. calling Apple's setter
+// instead of writing the struct field, is a separate deferred change.
 export function boring_execute(moduleName:string, is_base_hook: boolean){
+    enableDeepSymbolResolution(moduleName);
     executeSSLLibrary(OpenSSL_BoringSSL_MacOS, moduleName, socket_library, is_base_hook);
 }
 
+// Unlike boring_execute above, this one genuinely gains something: the mapping
+// requests SSL_CTX_set_keylog_callback, and a Python linked against a static
+// libssl keeps that symbol in .symtab rather than the export table. Today an
+// unresolved setter here means no keylog at all, so the fallback is purely
+// additive. Mirrors ssl_python_execute_modern
+// (agent/tls/platforms/macos/openssl_boringssl_macos.ts).
 export function ssl_python_execute(moduleName:string, is_base_hook: boolean){
+    enableDeepSymbolResolution(moduleName);
     executeSSLLibrary(OpenSSL_From_Python_MacOS, moduleName, socket_library, is_base_hook);
 }

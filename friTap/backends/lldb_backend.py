@@ -239,7 +239,9 @@ class LLDBBackend(Backend):
         target = process.GetTarget() if hasattr(process, 'GetTarget') else None
         return LLDBScript(target, fn_names)
 
-    def load_script(self, script: Any) -> None:
+    def load_script(self, script: Any, *, timeout: float | None = None) -> None:
+        # *timeout* is accepted for interface parity and ignored: an LLDB script
+        # load is synchronous and cheap, so it cannot wedge like a Frida agent.
         if isinstance(script, LLDBScript):
             script.load()
 

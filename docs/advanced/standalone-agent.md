@@ -44,23 +44,73 @@ waiting for each response:
 
 | Message | Expected Response Type | Purpose |
 |---------|----------------------|---------|
-| `"config_batch"` | `{"type": "config_batch", "payload": <dict with 17 fields>}` | Single consolidated handshake carrying every configuration value (see [field reference](#config_batch-field-reference) below) |
+| `"config_batch"` | `{"type": "config_batch", "payload": <dict of up to 23 fields>}` | Single consolidated handshake carrying every configuration value (see [field reference](#config_batch-field-reference) below) |
 | `"anti"` | `{"type": "antiroot", "payload": <bool>}` | Enable anti-root bypass (Android); sent once after `config_batch` |
+
+Note the deliberate asymmetry: the request `"anti"` is answered on the
+`"antiroot"` channel, while `config_batch` is answered on its own name.
+
+!!! warning "`anti` must be the last handshake"
+    `"anti"` is the **terminal** request. The agent resumes its top-level once
+    the `antiroot` reply lands, and that is what unblocks `script.load()`. Reply
+    to `config_batch` first; if you answer `anti` before the agent has its
+    configuration, the agent proceeds unconfigured — and if you never answer it,
+    `script.load()` blocks forever.
 
 !!! info "Canonical message protocol"
     For the full agent ↔ host message protocol — every outgoing `contentType`
     the agent emits, plus the build/compile pipeline — see the
     [Architecture reference](../development/architecture.md).
 
-> **Note:** Older agent builds shipped individual per-feature handshakes
-> (`offset_hooking`, `pattern_hooking`, `socket_tracing`, `defaultFD`,
-> `experimental`, `install_lsass_hook`). These have been removed in favor of the
-> single `config_batch` round-trip — keep this in mind when porting integrations
-> written against older docs.
+### Reply on the script that asked
+
+Post the reply to the **script that sent the request**, not to a single global
+"current script" reference.
+
+This is invisible with one script and fatal with two. Under child gating or spawn
+gating friTap creates additional scripts, and `instrument()` overwrites the host's
+current-script reference. A reply for the *parent's* in-flight handshake would
+then be posted to a freshly created *child* script, leaving the parent blocked in
+`recv().wait()` forever. friTap's own responder therefore takes the asking script
+as a parameter (`SSL_Logger._answer_startup_handshake(payload, script)`) and posts
+back on it.
+
+For the same reason, `config_batch` and `anti` must be answered
+**unconditionally** — once per asking script, not once per session. An earlier
+one-shot gate in friTap meant every script after the first hung, because the
+terminal `anti` reply cleared the gate for everyone. The batch payload is
+rebuilt per request (it is pure with respect to the session), so answering it
+repeatedly is safe.
+
+### Deprecated per-feature handshakes
+
+Older agent builds asked for each feature separately. The **agent no longer sends
+these**, but friTap's host **still answers them** as a compatibility fallback
+(`friTap/legacy/message_handler.py`), so an old bundle paired with a current host
+still starts. Treat them as a deprecated host-side fallback — not as removed.
+
+| Legacy request | Reply channel | Value |
+| --- | --- | --- |
+| `experimental` | `experimental` | bool |
+| `defaultFD` | `defaultFD` | bool |
+| `socket_tracing` | `socket_tracing` | bool or path |
+| `pattern_hooking` | `pattern_hooking` | JSON string or `None` |
+| `offset_hooking` | `offset_hooking` | JSON string or `None` |
+| `install_lsass_hook` | `install_lsass_hook` | bool |
+| `protocol_select` | `protocol_select` | protocol name |
+| `library_scan` | `library_scan` | scan results or `None` |
+| `use_modern` | `use_modern` | bool |
+
+Unlike `anti`, every legacy reply channel is named identically to its request.
+When porting an integration written against these, collapse them into a single
+`config_batch` reply.
 
 ### Minimal Message Handler
 
-Here's the minimal message handler that responds to all initialization messages:
+Here's a message handler that responds to all initialization messages. Every
+`config_batch` key is optional — the agent applies its own default with `??` for
+anything you omit — but the full list is spelled out here so you can see what is
+available:
 
 ```python
 def on_message(message, data):
@@ -68,8 +118,8 @@ def on_message(message, data):
         return
     payload = message.get("payload", {})
 
-    # Single consolidated handshake: agent sends "config_batch" once and
-    # blocks until we reply with a dict containing every config value.
+    # Single consolidated handshake: agent sends "config_batch" once per script
+    # and blocks until we reply. Every key is optional; defaults apply.
     if payload == "config_batch":
         script.post({"type": "config_batch", "payload": {
             "offsets":                   None,    # JSON string or None
@@ -79,7 +129,7 @@ def on_message(message, data):
             "pcap_enabled":              False,
             "keylog_enabled":            False,   # set True to also extract TLS keys
             "experimental":              False,
-            "protocol_select":           "tls",   # "tls" | "ssh" | "ipsec"
+            "protocol_select":           "tls",   # any registered protocol, or "all"/"auto"
             "install_lsass_hook":        False,   # Windows only
             "use_modern":                False,   # experimental modern path
             "library_scan":              None,
@@ -89,6 +139,12 @@ def on_message(message, data):
             "quic_only":                 False,
             "quic_egress_headers_layer": "auto",
             "debug_output":              False,
+            "no_loader_hook":            False,   # Android: skip android_dlopen_ext trampoline
+            "spawned":                   False,   # True if you spawned the target
+            "stealth_loader":            False,   # EXPERIMENTAL hardware-breakpoint loader watch
+            "pairip_safe":               False,   # minimal symbol-only BoringSSL keylog
+            "probe":                     False,   # dry run: report platform, install nothing
+            "extensions":                {},      # generic feature-config passthrough
         }})
         return
 
@@ -117,8 +173,15 @@ Toggle by setting `use_modern: true` in your `config_batch` reply.
 
 ## config_batch field reference
 
-The dict sent in reply to `config_batch` must include every field below. Values
-not relevant to your run can be left at their defaults.
+There are **23** fields. friTap's own host builds all of them in
+`friTap/legacy/ssl_logger_core.py::_build_config_batch()`.
+
+!!! note "No field is mandatory"
+    The agent reads every key with a `??` default, so a partial dict is valid —
+    omitting a field selects its default rather than breaking the handshake. Send
+    only what you need to change. (Earlier revisions of this page claimed the
+    reply "must include every field"; that was wrong in both directions, since
+    the list it gave was also incomplete.)
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
@@ -129,7 +192,7 @@ not relevant to your run can be left at their defaults.
 | `pcap_enabled` | bool | `False` | Required `True` if you process pcap-format datalogs. Set `False` if you do your own raw packet capture and only want keys (mirrors friTap's own `-f`/full-capture mode) |
 | `keylog_enabled` | bool | `True` | Set `False` to skip key extraction entirely. When `False`, the agent installs **no** key-extraction hooks (callback / symbol / pattern-scan) for any library on any platform, and emits no key material of any protocol — TLS/QUIC `keylog`, SSH `ssh_key`/`ssh_keylog`, and IPSec `ipsec_child_sa_keys`/`ipsec_ike_keys` are all gated by this one flag. Useful when you only want decrypted plaintext. Default `True` preserves prior behaviour for handlers that omit the field |
 | `experimental` | bool | `False` | Enable experimental hooking strategies |
-| `protocol_select` | `"tls"` \| `"ssh"` \| `"ipsec"` | `"tls"` | Which protocol's hooks to install. `ssh`/`ipsec` require `use_modern: true` |
+| `protocol_select` | protocol name \| `"all"` \| `"auto"` | `"tls"` | Which protocol's hooks to install. **Not a three-value enum** — it accepts every *registered* protocol name (e.g. `tls`, `ssh`, `ipsec`, `mtproto`, `signal`, `telegram`, …) plus `all` and `auto`; the set grows with the protocol registry, so run `fritap --help` for the current list. `ssh`/`ipsec` require `use_modern: true` |
 | `install_lsass_hook` | bool | `False` | Hook LSASS (Windows only) |
 | `use_modern` | bool | `False` | Opt into the experimental modern agent path |
 | `library_scan` | object or `None` | `None` | Library-scan configuration |
@@ -138,7 +201,92 @@ not relevant to your run can be left at their defaults.
 | `quic_capture_mode` | `"stream"` \| `"app-api"` | `"stream"` | QUIC/HTTP-3 capture strategy: `stream` taps the QUIC stream layer; `app-api` taps app-decoded headers |
 | `quic_only` | bool | `False` | Restrict hooking to the QUIC path only (skips classic TLS hooks for a leaner, lower-risk attach) |
 | `quic_egress_headers_layer` | `"auto"` or layer name | `"auto"` | Forces the HTTP/3 egress-headers chain layer; `"auto"` keeps the winner-takes-all fallback |
-| `debug_output` | bool | `False` | Mirrors the `-do`/`--debugoutput` CLI flag; gates expensive debug-only symbol enumeration in the agent |
+| `debug_output` | bool | `False` | Mirrors the `-do`/`--debug-output` CLI flag; gates expensive debug-only symbol enumeration in the agent (without it, every attach would walk the full Cronet/libmonochrome dynsym) |
+| `no_loader_hook` | bool | `False` | **Android.** Skip the inline `android_dlopen_ext` loader trampoline — the PairIP / anti-tamper `SIGSEGV` avoidance path ([friTap#64](https://github.com/fkie-cad/friTap/issues/64)). Only already-loaded or explicitly offset-selected libraries get hooked. Host source: `-nlh/--no-loader-hook` |
+| `spawned` | bool | `False` | Whether the target was **spawned** rather than attached. Lets the agent auto-skip the loader hook only in spawn mode (where it trips PairIP's startup scan) while keeping it for attach. Host source: the spawn flag, not a config option |
+| `stealth_loader` | bool | `False` | **EXPERIMENTAL.** Watch the loader with a hardware breakpoint (CPU debug registers) instead of patching the linker. Host source: `--experimental-stealth-loader` |
+| `pairip_safe` | bool | `False` | Minimal, scan-free **symbol-only keylog** on BoringSSL libraries; skips the loader hook, pattern scan, Java hooks and OHTTP. Host source: `--pairip-safe` |
+| `probe` | bool | `False` | **New in agent ABI 2.** Dry run: the agent sends its `platform_report` and **returns before installing any hooks**. Host source: `--probe`. See [rpc.exports and probe acknowledgement](#probe-acknowledgement) |
+| `extensions` | object | `{}` | Generic, protocol-agnostic **feature-config passthrough**. Keys are opt-in feature names, never protocol literals — e.g. `{"scan_region": "libfoo.so"}` drives the memory-scan engine (`agent/shared/scan/`). Empty unless a feature was requested, so the default wire shape is unchanged |
+
+### Probe acknowledgement
+
+When `probe: true`, the agent sends — *before* installing anything — a
+`platform_report` message and then stops:
+
+```json
+{
+  "contentType": "platform_report",
+  "platform": "android/arm64",
+  "target": "com.example.app",
+  "probe": true,
+  "abi": 2
+}
+```
+
+An integrator implementing probe support must treat the **`probe` field of
+`platform_report`** as the acknowledgement. friTap does exactly that: if no
+report arrives within 3 s, or the report's `probe` is falsey, it concludes the
+bundle predates probe mode and exits with code `2` rather than reporting a
+diagnostic it cannot trust. The `platform_report` is sent in **every** run, not
+just probe runs, so it is also a cheap way to learn the agent's platform branch
+and ABI.
+
+## rpc.exports
+
+The agent declares a small RPC surface at the top of `agent/fritap_agent.ts`,
+deliberately before initialization, so it survives an init failure and remains
+callable on a half-started agent.
+
+| Export (JS) | Python call | Returns | Purpose |
+| --- | --- | --- | --- |
+| `agentAbiVersion()` | `script.exports_sync.agent_abi_version()` | `int` | The bundle's compile-time `AGENT_ABI_VERSION`. Use it to detect a stale bundle at runtime |
+| `gracefulDetach()` | `script.exports_sync.graceful_detach()` | — | Marks the agent as shutting down, stops `blink`, then `Interceptor.detachAll()` |
+
+!!! info "Frida 17 naming convention"
+    JS declares **camelCase** (`rpc.exports.gracefulDetach`); Python calls
+    **snake_case** (`script.exports_sync.graceful_detach()`). Frida performs the
+    conversion. Getting this backwards yields a missing-export error, not a
+    warning.
+
+**Call `graceful_detach` on teardown.** It removes the hooks from inside the
+agent, cheaply and in one pass. An integrator that skips it falls back to
+`script.unload()` alone, which on a target with many hot hooks can block for
+seconds while the JS message loop drains — friTap bounds that fallback at 5 s and
+then deliberately skips `session.detach()` rather than race a busy session.
+
+```python
+try:
+    script.exports_sync.graceful_detach()
+except Exception:
+    pass          # agent may already be gone
+script.unload()
+process.detach()
+```
+
+## Agent ABI version
+
+`AGENT_ABI_VERSION` versions the **entire JS ↔ Python boundary**: the
+`config_batch` field set, the `ContentType` values the agent emits, and the
+`rpc.exports` surface. It is **currently `2`**.
+
+- Host side: `friTap/constants.py:AGENT_ABI_VERSION`
+- Agent side: `agent/shared/generated_constants.ts` (generated — do not hand-edit)
+- Readable at runtime via `agentAbiVersion()` and in the `platform_report`'s `abi`
+
+friTap checks it twice: statically, by grepping the bundle for the constant before
+loading, and over RPC after loading. Either mismatch produces a warning naming
+**both** versions and telling you to rebuild with `./dev/compile_agent.sh`.
+
+!!! warning "Third-party bundles must declare the same ABI"
+    A package that contributes an agent bundle through the `fritap.agent_bundle`
+    entry-point group must expose `AGENT_ABI_VERSION` equal to the host's. If it
+    differs, friTap **skips that entry point with a warning** and falls back to
+    the shipped agent — your bundle silently does not get used. The
+    `FRITAP_AGENT_BUNDLE` environment variable is *not* ABI-filtered and always
+    wins, so it is the escape hatch for local experiments.
+
+    Bump procedure: see `RELEASING.md`.
 
 ## Message Types from Agent
 
@@ -250,7 +398,8 @@ def on_message(message, data):
         payload = message.get("payload", {})
 
         # Consolidated initialization handshake (see "Minimal Message Handler"
-        # above for the full field reference).
+        # above for the full field reference). Any field omitted here — e.g.
+        # probe, pairip_safe, no_loader_hook — falls back to the agent default.
         if payload == "config_batch":
             script.post({"type": "config_batch", "payload": {
                 "offsets":                   None,
@@ -337,7 +486,8 @@ if __name__ == "__main__":
 ### Enabling Features via Initialization
 
 All feature toggles live inside the single `config_batch` reply — flip any
-field from its default to enable the corresponding behaviour. The example
+field from its default to enable the corresponding behaviour. Because every key
+is optional, a reply can carry **only** the fields you are changing. The example
 below enables pattern-based hooking with custom byte patterns, socket
 tracing, and the default-FD fallback in one shot:
 
@@ -359,28 +509,16 @@ if payload == "config_batch":
             }
         }
     }
+    # Only the fields that differ from the agent's defaults.
     script.post({"type": "config_batch", "payload": {
-        "offsets":                   None,
-        "patterns":                  json.dumps(patterns),
-        "socket_tracing":            True,
-        "defaultFD":                 True,
-        "pcap_enabled":              False,
-        "keylog_enabled":            False,
-        "experimental":              False,
-        "protocol_select":           "tls",
-        "install_lsass_hook":        False,
-        "use_modern":                False,
-        "library_scan":              None,
-        "library_scan_enabled":      False,
-        "ohttp_enabled":             True,
-        "quic_capture_mode":         "stream",
-        "quic_only":                 False,
-        "quic_egress_headers_layer": "auto",
-        "debug_output":              False,
+        "patterns":       json.dumps(patterns),
+        "socket_tracing": True,
+        "defaultFD":      True,
+        "keylog_enabled": True,
     }})
     return
 
-# The anti-root probe remains a separate handshake.
+# The anti-root probe remains a separate handshake, and must be last.
 if payload == "anti":
     script.post({"type": "antiroot", "payload": True})
     return
@@ -405,23 +543,8 @@ if payload == "config_batch":
         }
     }
     script.post({"type": "config_batch", "payload": {
-        "offsets":                   json.dumps(offsets),
-        "patterns":                  None,
-        "socket_tracing":            False,
-        "defaultFD":                 False,
-        "pcap_enabled":              False,
-        "keylog_enabled":            False,
-        "experimental":              False,
-        "protocol_select":           "tls",
-        "install_lsass_hook":        False,
-        "use_modern":                False,
-        "library_scan":              None,
-        "library_scan_enabled":      False,
-        "ohttp_enabled":             True,
-        "quic_capture_mode":         "stream",
-        "quic_only":                 False,
-        "quic_egress_headers_layer": "auto",
-        "debug_output":              False,
+        "offsets":        json.dumps(offsets),
+        "keylog_enabled": True,
     }})
     return
 ```
@@ -462,13 +585,47 @@ device.resume(pid)
 **Cause:** Missing initialization message responses.
 
 **Solution:** Ensure your message handler responds to BOTH initialization
-messages — `config_batch` (with a dict containing all 17 fields) and `anti`
-(with `{"type": "antiroot", "payload": <bool>}`). If you are porting code
-from an older agent build that listened for individual handshakes
-(`offset_hooking`, `pattern_hooking`, `socket_tracing`, `defaultFD`,
-`experimental`, `install_lsass_hook`), collapse them into a single
-`config_batch` reply instead — those per-message handshakes are deprecated and
-no longer sent by the agent.
+messages — `config_batch` (with a dict; a **partial** dict is fine, every key has
+a default) and `anti` (with `{"type": "antiroot", "payload": <bool>}`), and that
+it answers **both, unconditionally, on the script that asked**. Three failure
+modes look identical from the outside:
+
+1. **`anti` never answered** — the agent's top-level never resumes, so
+   `script.load()` blocks forever. `anti` is terminal; it must be answered.
+2. **Reply posted to the wrong script** — with child/spawn gating, replying on a
+   cached "current script" reference sends the parent's answer to a child script.
+   The parent stays in `recv().wait()`. See
+   [Reply on the script that asked](#reply-on-the-script-that-asked).
+3. **A one-shot handshake gate** — if you stop answering after the first script,
+   every subsequent script hangs.
+
+If you are porting code from an older agent build that listened for individual
+handshakes (`offset_hooking`, `pattern_hooking`, `socket_tracing`, `defaultFD`,
+`experimental`, `install_lsass_hook`, `protocol_select`, `library_scan`,
+`use_modern`), collapse them into a single `config_batch` reply — current agents
+no longer send them (friTap's host still *answers* them for old bundles; see
+[Deprecated per-feature handshakes](#deprecated-per-feature-handshakes)).
+
+### Hooks Installed but the Target Dies
+
+Send `probe: true` in `config_batch`. The agent then reports its platform and
+returns **before installing any hooks**, which separates "the agent cannot load
+here" from "one of the hooks is fatal". Verify the reply is honored by checking
+that the `platform_report` you receive has `probe: true` — a bundle older than
+agent ABI 2 ignores the field and instruments the target as usual. This is exactly
+what `fritap --probe` does; see the
+[CLI reference](../api/cli.md#-probe).
+
+### Stale Bundle / Unrecognised Handshake
+
+**Cause:** The `.js` bundle you loaded was built from different TypeScript than the
+host you are pairing it with. `friTap/fritap_agent.js` is **pre-compiled** —
+nothing rebuilds it at run time.
+
+**Solution:** Rebuild with `./dev/compile_agent.sh` and compare
+`agentAbiVersion()` against `friTap/constants.py:AGENT_ABI_VERSION`. See
+[Agent ABI version](#agent-abi-version) and the
+[rebuild rule](../troubleshooting/common-issues.md#i-edited-agentts-and-nothing-changed-the-rebuild-rule).
 
 ### No Data Captured
 

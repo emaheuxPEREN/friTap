@@ -35,7 +35,7 @@ flake8 friTap/ tests/
 mypy friTap/
 
 # TypeScript compilation
-npm run build
+./dev/compile_agent.sh
 
 # Run tests
 python run_tests.py --fast

@@ -56,9 +56,9 @@ friTap uses dynamic instrumentation to intercept SSL/TLS operations at the libra
 
 | Library | Linux | Windows | macOS | Android | iOS | Key Features |
 |---------|-------|---------|-------|---------|-----|--------------|
-| **OpenSSL** | ✓ Full | R/W | TBI | ✓ Full | TBI | Most widely used |
+| **OpenSSL** | ✓ Full | R/W | ✓ Full | ✓ Full | TBI | Most widely used |
 | **BoringSSL** | ✓ Full | R/W | Keys | ✓ Full | Keys | Google's OpenSSL fork |
-| **NSS** | ✓ Full | R/W | TBI | Keys | TBI | Mozilla's library |
+| **NSS** | ✓ Full | R/W | ✓ Full | Keys | TBI | Mozilla's library |
 | **GnuTLS** | R/W | R/W | TBI | ✓ Full | TBI | GNU project library |
 | **WolfSSL** | R/W | R/W | TBI | ✓ Full | TBI | Embedded/IoT focused |
 | **mbedTLS** | R/W | R/W | TBI | ✓ Full | TBI | Lightweight library |

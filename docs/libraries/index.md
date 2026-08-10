@@ -71,7 +71,7 @@ friTap automatically detects SSL/TLS libraries using multiple methods:
 fritap -v target_app
 
 # Debug library detection
-fritap -do -v target_app | grep -i "library\|found\|detect"
+fritap -do -v target_app 2>&1 | grep -i "library\|found\|detect"
 
 # List loaded libraries
 fritap --list-libraries target_app
@@ -90,8 +90,17 @@ fritap --list-libraries target_app
 - **Schannel**: Windows native SSL/TLS
 - **NSS**: Mozilla's Network Security Services
 
-**Not Currently Supported (Planned)**
-- **Secure Transport / Network.framework**: macOS/iOS native TLS implementations — no hooks are implemented, so apps using Apple's native TLS (e.g. Safari, Mail) cannot be analyzed
+**Apple Native TLS**
+- **Network.framework / CFNetwork / URLSession**: **supported, keys only.** These run their TLS on top of Apple's `/usr/lib/libboringssl.dylib`, which friTap hooks — a Swift `URLSession` client produced 220 well-formed keys attributed to that module (measured on macOS/Apple arm64). What blocks Safari and Mail is **code signing**, not the TLS stack.
+- **Secure Transport / `libcoretls`**: legacy Security.framework TLS — **no hooks at all**, on either macOS or iOS.
+
+!!! warning "iOS is much narrower than macOS"
+    Do not read the above as "Apple works". macOS registers 12 hook patterns;
+    **iOS registers only three, all BoringSSL-family**. On iOS an app carrying its
+    own OpenSSL, LibreSSL, NSS, GnuTLS, wolfSSL, mbedTLS, rustls or Go TLS is
+    unhooked, and **all QUIC and all SSH** are unhooked. The library-scan fallback
+    cannot rescue it: it only resolves library types present in that platform's
+    registry. See [iOS](../platforms/ios.md) and [macOS](../platforms/macos.md).
 
 ### Embedded Libraries
 
@@ -187,7 +196,7 @@ fritap --patterns boringssl.json -k keys.log chrome
 fritap -k nss_keys.log firefox
 
 # Debug NSS detection
-fritap -do -v firefox | grep -i nss
+fritap -do -v firefox 2>&1 | grep -i nss
 ```
 
 ### WolfSSL
@@ -264,7 +273,7 @@ function → {primary, fallback}`) for the default engine — see
 fritap --list-libraries target
 
 # Enable debug output
-fritap -do -v target | grep -i "library\|module"
+fritap -do -v target 2>&1 | grep -i "library\|module"
 
 # Try pattern matching
 fritap --patterns custom.json -k keys.log target
@@ -297,11 +306,12 @@ fritap --patterns openssl_1.1.json -k keys.log target
 ### 1. Library Identification
 
 ```bash
-# Always identify library first
-fritap -v target | head -20
+# Always identify library first (friTap logs to stderr, so log to a file)
+fritap -v --debug-log ./detect.log target
+grep -i "library\|found" ./detect.log
 
 # Check for multiple libraries
-fritap --list-libraries target | wc -l
+fritap --list-libraries target 2>&1 | wc -l
 ```
 
 ### 2. Appropriate Hook Strategy

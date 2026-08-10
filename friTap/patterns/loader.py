@@ -56,20 +56,29 @@ class PatternLoader:
                 logger.warning("Failed to load default patterns: %s", e)
 
         # 2. If user provided --patterns, load and deep-merge
-        if patterns_path is not None and os.path.exists(patterns_path):
-            try:
-                with open(patterns_path, "r") as f:
-                    user_patterns = json.load(f)
-                if not PatternLoader.validate(user_patterns, logger):
-                    logger.warning(
-                        "User pattern file '%s' contains invalid patterns; "
-                        "falling back to default patterns only", patterns_path
-                    )
-                else:
-                    base_patterns = PatternLoader.deep_merge(base_patterns, user_patterns)
-                    logger.info("Merged user patterns from %s", patterns_path)
-            except Exception as e:
-                logger.error("Failed to load user patterns: %s", e)
+        if patterns_path is not None:
+            if not os.path.exists(patterns_path):
+                # Historically silent: a typo'd --patterns path just vanished and
+                # the run continued on defaults, looking like the file had been
+                # honoured. Warn like the invalid-content case below does.
+                logger.warning(
+                    "User pattern file '%s' does not exist; "
+                    "falling back to default patterns only", patterns_path
+                )
+            else:
+                try:
+                    with open(patterns_path, "r") as f:
+                        user_patterns = json.load(f)
+                    if not PatternLoader.validate(user_patterns, logger):
+                        logger.warning(
+                            "User pattern file '%s' contains invalid patterns; "
+                            "falling back to default patterns only", patterns_path
+                        )
+                    else:
+                        base_patterns = PatternLoader.deep_merge(base_patterns, user_patterns)
+                        logger.info("Merged user patterns from %s", patterns_path)
+                except Exception as e:
+                    logger.error("Failed to load user patterns: %s", e)
 
         if not base_patterns:
             return None

@@ -164,6 +164,24 @@ class HookBreadcrumbEvent(FriTapEvent):
     marker: str = ""
 
 
+@dataclass
+class PlatformReportEvent(FriTapEvent):
+    """Emitted once by the agent after it picked its platform branch.
+
+    Answers "how far did friTap get, and on which code path?" — the question a
+    user has no way to answer today when a target dies during instrumentation
+    (fkie-cad/friTap#65). ``platform`` is the human label the agent prints
+    ("MacOS", "iOS", …), ``target`` the internal kind ("macos", "ios", …),
+    ``probe`` echoes the ``--probe`` flag back so the host can tell a
+    probe-aware bundle from an old one, and ``abi`` is the bundle's
+    ``AGENT_ABI_VERSION``.
+    """
+    platform: str = ""
+    target: str = ""
+    probe: bool = False
+    abi: int = 0
+
+
 # ErrorEvent severity values — controls TUI modal vs activity-log routing.
 ERROR_SEVERITY_INFO = "info"
 ERROR_SEVERITY_WARNING = "warning"

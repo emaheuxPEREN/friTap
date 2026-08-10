@@ -48,7 +48,6 @@ import { google_quiche_execute } from "../quic/platforms/android/google_quiche_a
 import { neqo_execute } from "../quic/platforms/android/neqo_android.js";
 
 var plattform_name: Platform = PLATFORM_LINUX;
-var moduleNames: Array<string> = getModuleNames();
 
 export const socket_library = "libc"
 
@@ -57,7 +56,7 @@ function install_java_hooks(){
 }
 
 function hook_native_Android_SSL_Libs(hookRegistry: HookRegistry, is_base_hook: boolean){
-    ssl_library_loader(plattform_name, hookRegistry, moduleNames, "Android", is_base_hook, selected_protocol)
+    ssl_library_loader(plattform_name, hookRegistry, getModuleNames(), "Android", is_base_hook, selected_protocol)
 
 }
 
@@ -77,6 +76,10 @@ function install_pattern_based_hooks(){
         let data = loadPatternsFromJSON(patterns);
         if (data === null || !data.modules) return;
 
+        // One fresh enumeration for the whole pass: the per-key loop below filters
+        // this list, so enumerating inside the loop would repeat the walk per key.
+        const loadedModules = getModuleNames();
+
         for (const patternKey of Object.keys(data.modules)) {
             devlog("[*] Module name: " + patternKey);
             hookRegistry.register({
@@ -92,7 +95,7 @@ function install_pattern_based_hooks(){
             // resulting "already hooked, skipping" noise. Future dlopen events
             // are still picked up by the dynamic-loader hook installed earlier.
             const matcher = new RegExp(patternKey);
-            for (const candidate of moduleNames) {
+            for (const candidate of loadedModules) {
                 if (!matcher.test(candidate)) continue;
                 // Never Memory.scan an anti-tamper lib (PairIP) even if a
                 // user-supplied pattern would match it; it crashes the target.
@@ -353,7 +356,7 @@ export function load_android_hooking_agent() {
             // Skip OHTTP's own android_dlopen_ext trampoline whenever the inline
             // loader hook is gated (plain skip OR stealth mode) — it only hooks
             // already-loaded modules then.
-            installOhttpHooks(plattform_name, hookRegistry, moduleNames, "Android", androidLoaderConfig, !installInlineLoaderHook);
+            installOhttpHooks(plattform_name, hookRegistry, getModuleNames(), "Android", androidLoaderConfig, !installInlineLoaderHook);
             processScanResults(scan_results, plattform_name, true, selected_protocol);
         },
     });
@@ -368,7 +371,7 @@ export function load_android_hooking_agent() {
                     log("[-] Re-run in attach mode (no -s) or with root frida-server. See friTap#64.");
                 }
             } else if (installInlineLoaderHook) {
-                hookDynamicLoader(androidLoaderConfig, hookRegistry, moduleNames, false, selected_protocol);
+                hookDynamicLoader(androidLoaderConfig, hookRegistry, getModuleNames(), false, selected_protocol);
             }
             if (isPatternReplaced()) install_pattern_based_hooks();
         },
@@ -399,7 +402,7 @@ export function load_android_hooking_agent() {
                 // avoided (fkie-cad/friTap#64). Stealth mode's HW-bp watcher
                 // already covers future loads.
                 if (installInlineLoaderHook) {
-                    hookDynamicLoader(androidLoaderConfig, hookRegistry, moduleNames, false, selected_protocol);
+                    hookDynamicLoader(androidLoaderConfig, hookRegistry, getModuleNames(), false, selected_protocol);
                 }
                 log("[*] Hooked additional modules with SSL_CTX_set_keylog_callback.");
             }

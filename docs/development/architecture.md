@@ -5,9 +5,10 @@ compiled Frida agent, how the two sides exchange configuration and captured
 data over the Frida message channel, and how a built agent is produced from the
 TypeScript sources.
 
-!!! info "This page owns the wire-level protocol"
+!!! info "This page is the reference for the wire-level protocol"
     The `config_batch` handshake and the outgoing `contentType` schema, together
-    with the build/compile pipeline, are defined **here**. Other pages
+    with the build/compile pipeline, are *defined in the source*; this page is
+    where they are **documented**, with citations. Other pages
     ([Concepts](../getting-started/concepts.md),
     [Standalone Agent](../advanced/standalone-agent.md)) link to this page rather
     than restating the protocol. If you change a field or message, update this
@@ -28,32 +29,35 @@ friTap is two cooperating halves joined by Frida's bidirectional message channel
 The lifecycle is:
 
 1. **CLI → config.** `friTap.py` builds a `FriTapConfig`. The core reads the
-   compiled agent from disk: `get_agent_script()` opens
-   `os.path.join(here, "fritap_agent.js")`
-   (`friTap/legacy/ssl_logger_core.py:1561-1563`; `here` is the package root,
-   line 48).
+   compiled agent from disk: `get_agent_script()` resolves and opens the bundle
+   (`friTap/legacy/ssl_logger_core.py:2865-2867`, via
+   `_resolve_agent_bundle_path()` at `:2726`; the package root `here` is
+   computed at line 88).
 2. **Backend injects the agent.** `create_script(...)` compiles the agent into
    the target and `load_script(...)` runs it
-   (`frida_backend.py:351-356`; called from `ssl_logger_core.py:789,799`).
+   (`frida_backend.py:392` and `:397`; called from `ssl_logger_core.py:1733`
+   and `:1600`).
 3. **Agent requests config.** Immediately on load the agent issues a single
    handshake: `send("config_batch")` and blocks on the reply
-   (`agent/fritap_agent.ts:222-223`, via `recvHandshake`, `:211-220`).
+   (`agent/fritap_agent.ts:336-337`, via `recvHandshake`, `:324-334`).
 4. **Host replies once.** The host's message handler sees the `"config_batch"`
-   string payload, assembles the 17-field batch, and posts it back via
-   `post_message(...)` (`ssl_logger_core.py:614-654`;
-   `frida_backend.py:369-370` → `script.post(...)`).
+   string payload, assembles the 23-field batch in `_build_config_batch()`, and
+   posts it back via `post_message(...)`
+   (`ssl_logger_core.py:1340-1414`, posted at `:1441`;
+   `frida_backend.py:445` → `script.post(...)`).
 5. **Anti-root probe (Android).** After the batch the agent runs one more
    handshake — `anti` → `antiroot` — then initializes the hooking pipeline
-   (`agent/fritap_agent.ts:256-260`).
+   (`agent/fritap_agent.ts:393`).
 6. **Hooks install, capture begins.** The agent loads the OS-specific hooking
-   agent (`agent/fritap_agent.ts:287+`) and installs key-extraction / plaintext
-   hooks.
+   agent (`load_os_specific_agent()`, `agent/fritap_agent.ts:570`, invoked at
+   `:609`) and installs key-extraction / plaintext hooks.
 7. **Agent → host messages.** Each hook emits a `send(...)` whose payload carries
    a `contentType` discriminator (keys, plaintext, lifecycle, console, etc.).
-8. **Host handlers fan out.** `_message_callback` dispatches by `contentType`
+8. **Host handlers fan out.** `on_fritap_message` dispatches by `contentType`
    to the keylog file, pcap/pcapng writers, the Flow model and `.tap` writer,
    the event bus, and any active [sinks](#sinks)
-   (`ssl_logger_core.py:659-663`, `friTap/legacy/message_handler.py`).
+   (`ssl_logger_core.py:1261`; the `contentType` guard is at `:1299`,
+   `friTap/legacy/message_handler.py`).
 
 ## Data-flow diagram
 
@@ -65,7 +69,7 @@ flowchart TD
     BE -->|inject| AGENT["fritap_agent.js (in target)"]
 
     AGENT -->|send: config_batch| CORE
-    CORE -->|post: config_batch 17 fields| AGENT
+    CORE -->|post: config_batch 23 fields| AGENT
     AGENT -->|send: anti| CORE
     CORE -->|post: antiroot bool| AGENT
 
@@ -86,8 +90,8 @@ dictionary and posts it back **once** — replacing the deprecated
 per-field handshake. Every field is applied with `??` (nullish-coalescing), so
 an omitted field falls back to the agent default.
 
-- **Agent consumer:** `agent/fritap_agent.ts:223-254`
-- **Host producer:** `friTap/legacy/ssl_logger_core.py:616-654`
+- **Agent consumer:** `agent/fritap_agent.ts:338-390`
+- **Host producer:** `friTap/legacy/ssl_logger_core.py::_build_config_batch`, `:1340-1414`
 
 | # | Field | Purpose |
 |---|-------|---------|
@@ -107,25 +111,33 @@ an omitted field falls back to the agent default.
 | 14 | `quic_capture_mode` | `"stream"` or `"app-api"` — where HTTP/3 is captured. |
 | 15 | `quic_only` | Capture only QUIC, skipping TCP/TLS hooks. |
 | 16 | `quic_egress_headers_layer` | Force the HTTP/3 egress-headers chain layer (`"auto"` = winner-takes-all). |
-| 17 | `debug_output` | Mirror of `-do`/`--debugoutput`; lets the agent skip expensive debug-only enumeration. |
+| 17 | `debug_output` | Mirror of `-do`/`--debug-output`; lets the agent skip expensive debug-only enumeration. |
+| 18 | `no_loader_hook` | `--no-loader-hook`: skip the inline `android_dlopen_ext` loader trampoline (PairIP/anti-tamper `SIGSEGV` avoidance). |
+| 19 | `spawned` | Whether the target was spawned rather than attached; lets the agent auto-skip the loader hook in spawn mode only. |
+| 20 | `stealth_loader` | EXPERIMENTAL: hardware-breakpoint loader watch instead of a linker patch. |
+| 21 | `pairip_safe` | `--pairip-safe`: minimal symbol-only keylog on BoringSSL libs — no loader hook, no pattern scan, no Java/OHTTP. |
+| 22 | `probe` | `--probe` dry run: report the chosen platform branch and the hooks that *would* be installed, then stop. |
+| 23 | `extensions` | Protocol-agnostic feature-config passthrough (e.g. `scan_region` for the memory-scan engine). Empty unless a feature was requested. |
 
 !!! warning "Keep integrators in sync"
-    A standalone integrator must send all 17 fields. Omitting `keylog_enabled`
-    (defaults true in the agent) or `debug_output` causes subtle behavior drift.
-    See [Standalone Agent](../advanced/standalone-agent.md).
+    friTap's own host sends all 23 fields. No field is *mandatory* — the agent
+    reads each one with `??`, so a partial dict selects defaults — but omitting
+    `keylog_enabled` (defaults **true** in the agent) or `debug_output` causes
+    subtle behavior drift. See
+    [Standalone Agent](../advanced/standalone-agent.md).
 
 ## Outgoing `contentType` messages
 
 After hooks install, the agent reports everything as a `send(...)` whose payload
 contains a `contentType` discriminator. The host dispatches on it
-(`ssl_logger_core.py:659-663`; `friTap/legacy/message_handler.py`).
+(`ssl_logger_core.py::on_fritap_message`, `:1261`; `friTap/legacy/message_handler.py`).
 
 !!! info "The TypeScript schema is generated — edit the Python source"
     `agent/schemas/messages.ts` is **auto-generated** from
     `friTap/schemas/agent_messages.py` by `dev/generate_agent_types.py`
     (the file header says *"Do NOT edit by hand"*). To add or change a message,
     edit the Pydantic models in `agent_messages.py`, then run
-    `python dev/generate_agent_types.py` and `npm run build`.
+    `python dev/generate_agent_types.py` and `./dev/compile_agent.sh`.
 
 | `contentType` | Payload (key fields) | Host destination |
 |---------------|----------------------|------------------|
@@ -186,20 +198,25 @@ Sinks are host-side consumers of canonical capture events. They live in
 The agent is TypeScript (`agent/`) compiled to a single bundled JavaScript file:
 
 ```bash
-npm run build
+npm ci --ignore-scripts   # once, to pin the toolchain
+./dev/compile_agent.sh
 # → frida-compile agent/fritap_agent.ts -o friTap/fritap_agent.js
 ```
 
-(`package.json:9`; a `watch` variant exists at `:10`.) The output
-`friTap/fritap_agent.js` ships inside the Python package.
+The output `friTap/fritap_agent.js` ships inside the Python package. Do **not**
+use `npm install` / `npm run build`: `package.json` declares
+`"prepare": "npm run build"`, so an unpinned rebuild can emit a bundle the
+`agent-build-check` CI job rejects. CI itself runs `npm ci --ignore-scripts`
+(`.github/workflows/ci.yml:101`) followed by `./dev/compile_agent.sh`, and the
+script's trailing `done. Agent: <bytes>` line is the only success signal.
 
 At runtime the host loads the **compiled** JS (never the TypeScript): the core
 opens `friTap/fritap_agent.js` with `open(..., newline='\n')` and reads it as a
-string (`get_agent_script()`, `ssl_logger_core.py:1561-1563`), then hands that
+string (`get_agent_script()`, `ssl_logger_core.py:2865-2867`), then hands that
 string to `backend.create_script(...)` for injection.
 
 !!! tip "After editing the agent"
-    Always run `npm run build` so `friTap/fritap_agent.js` reflects your
+    Always run `./dev/compile_agent.sh` so `friTap/fritap_agent.js` reflects your
     TypeScript changes. If you touched the message schema, also regenerate
     `agent/schemas/messages.ts` first
     (`python dev/generate_agent_types.py`). See
@@ -218,9 +235,9 @@ Follow a single OpenSSL/BoringSSL keylog line from the hook to `keys.log`:
    `sendKeylog(line.readCString())` (`openssl.ts:126`), which wraps the line as
    `sendWithProtocol({ contentType: "keylog", keylog: keylogLine })`
    (`agent/shared/shared_structures.ts:64-69`). Frida posts this `send` to the host.
-3. **Host receives the message.** `_message_callback` extracts the payload,
+3. **Host receives the message.** `on_fritap_message` extracts the payload,
    confirms it has a `contentType`, and emits it on the event bus
-   (`ssl_logger_core.py:659-663`).
+   (`ssl_logger_core.py:1261`; the `contentType` guard is at `:1299`).
 4. **Handler writes the file.** `message_handler` matches
    `payload["contentType"] == "keylog"`, deduplicates against `keydump_Set`, and
    writes the line:

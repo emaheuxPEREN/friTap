@@ -46,6 +46,33 @@ The structural fix is to make the cross-file invariant un-bypassable.
     - Verify both jobs ran green at https://github.com/fkie-cad/friTap/actions
       and the tag appears at https://github.com/fkie-cad/friTap/tags.
 
+## Agent ABI (`AGENT_ABI_VERSION`)
+
+`friTap/constants.py:AGENT_ABI_VERSION` versions the JS↔Python boundary:
+`config_batch` fields, `ContentType` values, and `rpc.exports`. **Bump it
+whenever that boundary changes**, and in the same commit:
+
+1. `python dev/generate_agent_types.py` — mirrors the constant into
+   `agent/shared/generated_constants.ts`.
+2. `./dev/compile_agent.sh` — bakes it into `friTap/fritap_agent.js`. Confirm
+   the `done. Agent: <bytes>` line: it is the only positive signal. The script
+   writes `frida-compile -o` straight onto the bundle with no temp file or
+   backup, so after a failed build what is on disk is undefined (previous bundle
+   or partial write) and a later test would not be exercising your change.
+3. Commit both regenerated artifacts.
+
+`tests/unit/test_agent_bundle_abi_static.py` fails if any of the three
+(constant, generated TS, shipped bundle) disagree, which is what stops
+"bumped the constant, forgot to rebuild" from shipping.
+
+### Private / extended bundles move in lockstep
+
+A package contributing a `fritap.agent_bundle` entry point must declare the
+**same** `AGENT_ABI_VERSION` as the friTap it is installed alongside. If it does
+not, friTap logs a warning and falls back to the bundled agent — the private
+hooks simply do not load. Release such packages together with any ABI bump, and
+mention the required ABI in their release notes.
+
 ## Pre-releases
 
 Use `X.Y.Z-rc.1` / `X.Y.Z-alpha.1` for frida-major-transition testing. PyPI

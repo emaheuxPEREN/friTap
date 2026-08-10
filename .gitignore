@@ -28,6 +28,7 @@ research/
 # dev/ shell scripts: the broad *.sh rule above hides them, but they are
 # part of the maintainer toolchain (compile_agent.sh is invoked by the
 # agent-build-check CI job; entrypoint.sh is referenced by dev/Dockerfile).
+!dev/macos_verify/verify.sh
 !dev/*.sh
 # scripts/ shell tooling (the public/private tiering leak guards): verify_public_build.sh
 # and check_public_denylist.sh (CI leak-guard job) must be tracked despite *.sh above.

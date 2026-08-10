@@ -185,9 +185,43 @@ Wire the executor into the platform agent — for Linux that is
 Each registration is a `HookRegistration` (`agent/shared/registry.ts`):
 `platform`, `pattern`, `hookFn`, and `library` are required; `protocol`
 (defaults to `"tls"`) and `priority` (defaults to `100`) are optional, as are
-`libraryType`, `pathFilter`, and `excludePattern`. Use `register(...)` for a
-single hook or `registerAll([...])` for several. Add the matching entry to
-`windows.ts` / `macos.ts` / `android.ts` if you support those platforms.
+`libraryType`, `pathFilter`, `excludePathFilter`, and `excludePattern`. Use
+`register(...)` for a single hook or `registerAll([...])` for several. Add the
+matching entry to `windows.ts` / `macos.ts` / `android.ts` if you support those
+platforms.
+
+### Narrowing a match
+
+Three optional fields narrow an entry, and the difference between them matters
+because the loader invokes **every** matching entry — two entries that overlap
+means one library hooked twice by two different executors.
+
+| Field | Matches against | Semantics |
+|-------|-----------------|-----------|
+| `excludePattern` | module **name** | `RegExp`; skip when it matches. |
+| `pathFilter` | module **path** | Positive requirement. A `string` is a case-insensitive substring; a `RegExp` is tested against the raw path (add `/i` yourself). |
+| `excludePathFilter` | module **path** | Negative requirement. Same `string`/`RegExp` semantics; accepts an array and skips when **any** entry matches. |
+
+The two path filters behave differently when no module path is available (which
+happens on the dynamic-loader path when a module is not yet resolvable):
+
+* `pathFilter` **fails closed** — a requirement that cannot be verified counts as
+  unmet, so the hook is skipped.
+* `excludePathFilter` **fails open** — an exclusion that cannot be evaluated must
+  not exclude.
+
+That asymmetry is deliberate and load-bearing. It is what lets a complementary
+pair of entries (one `pathFilter: X`, one `excludePathFilter: X`) still resolve to
+exactly one hook when the path is unknown, instead of both dropping out and
+leaving the library unhooked. `agent/platforms/macos.ts` uses exactly that pair to
+split system LibreSSL from genuine OpenSSL.
+
+If you write a predicate that several entries share, put it in a module and
+reference the same object from each (see
+`agent/shared/darwin_library_patterns.ts`). Sharing the instance is what makes
+"entry B covers exactly what entry A does not" true by construction rather than
+by two literals that can drift apart. Such a shared `RegExp` must never carry the
+`/g` or `/y` flag, since those make `.test()` stateful.
 
 The agent entry point is `agent/fritap_agent.ts`; the platform agents are loaded
 from there.
@@ -195,8 +229,9 @@ from there.
 ### Step 4 — Build
 
 ```bash
-npm run build
+./dev/compile_agent.sh
 # runs: frida-compile agent/fritap_agent.ts -o friTap/fritap_agent.js
+# success signal: the trailing "done. Agent: <bytes>" line
 ```
 
 Then test on a device against a known-good target:

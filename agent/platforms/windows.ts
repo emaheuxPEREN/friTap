@@ -29,18 +29,21 @@ import { neqo_execute } from "../quic/platforms/windows/neqo_windows.js";
 
 
 var plattform_name: Platform = PLATFORM_WINDOWS;
-var moduleNames: Array<string> = getModuleNames()
 
 export const socket_library = "WS2_32.dll";
 
 function hook_Windows_SSL_Libs(hookRegistry: HookRegistry, is_base_hook: boolean) {
-    ssl_library_loader(plattform_name, hookRegistry, moduleNames, "Windows", is_base_hook, selected_protocol)
+    ssl_library_loader(plattform_name, hookRegistry, getModuleNames(), "Windows", is_base_hook, selected_protocol)
 }
 
 export function load_windows_hooking_agent() {
     hookRegistry.registerAll([
         // TLS libraries (TLS protocol family — also covers QUIC and OHTTP below)
-        { platform: plattform_name, pattern: /^(libssl|LIBSSL)-[0-9]+(_[0-9]+)?\.dll$/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", libraryType: "openssl", protocol: "tls" },
+        // excludePathFilter is the exact complement of the next entry's
+        // pathFilter. Without it C:\Python312\DLLs\libssl-3.dll matched BOTH,
+        // and since ssl_library_loader invokes EVERY match, two executors
+        // installed on the same module.
+        { platform: plattform_name, pattern: /^(libssl|LIBSSL)-[0-9]+(_[0-9]+)?\.dll$/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", excludePathFilter: "python", libraryType: "openssl", protocol: "tls" },
         { platform: plattform_name, pattern: /^.*libssl.*\.dll$/, hookFn: (use_modern ? ssl_python_execute_modern : ssl_python_execute), library: "Python OpenSSL", pathFilter: "python", libraryType: "openssl", protocol: "tls" },
         { platform: plattform_name, pattern: /^.*(wolfssl|WOLFSSL).*\.dll$/, hookFn: (use_modern ? wolfssl_execute_modern : wolfssl_execute), library: "WolfSSL", libraryType: "wolfssl", protocol: "tls" },
         { platform: plattform_name, pattern: /^.*(libgnutls|LIBGNUTLS)-[0-9]+\.dll$/, hookFn: (use_modern ? gnutls_execute_modern : gnutls_execute), library: "GnuTLS", libraryType: "gnutls", protocol: "tls" },
@@ -64,15 +67,25 @@ export function load_windows_hooking_agent() {
         resolveViaApi: "exports:KERNELBASE.dll!*LoadLibraryExW",
         functionName: "LoadLibraryExW",
         moduleFromRetval: true,
+        // Resolve the module path in the LoadLibraryExW onLeave (as Linux already
+        // does). Without it `modulePath` is undefined on the dynamic-load path and
+        // `_isExcluded` fails closed for every path-filtered hook — so the
+        // "Python OpenSSL" entry above (pathFilter "python") could never install
+        // for a libssl loaded after attach, which is exactly how Python's `_ssl`
+        // pulls it in. Composes with `moduleFromRetval`: the name comes from
+        // ModuleMap(retval) first, then the path lookup runs on that name inside
+        // hookDynamicLoader's try/catch, so an unresolvable module degrades to
+        // "no path" instead of throwing inside the loader hook.
+        extractModulePath: true,
     };
-    installOhttpHooks(plattform_name, hookRegistry, moduleNames, "Windows", windowsLoaderConfig);
+    installOhttpHooks(plattform_name, hookRegistry, getModuleNames(), "Windows", windowsLoaderConfig);
     processScanResults(scan_results, plattform_name, true, selected_protocol);
     hookDynamicLoader({
         ...windowsLoaderConfig,
         onMatchExtra: () => {
             log("\n[*] Remember to hook the default SSL provider for the Windows API you have to hook lsass.exe\n");
         },
-    }, hookRegistry, moduleNames, false, selected_protocol);
+    }, hookRegistry, getModuleNames(), false, selected_protocol);
 }
 
 export function load_windows_lsass_agent() {
@@ -92,6 +105,6 @@ export function load_windows_lsass_agent() {
         onMatchExtra: () => {
             log("\n[*] Remember to hook the default SSL provider for the Windows API you have to hook lsass.exe\n");
         },
-    }, hookRegistry, moduleNames, false, selected_protocol);
+    }, hookRegistry, getModuleNames(), false, selected_protocol);
 
 }

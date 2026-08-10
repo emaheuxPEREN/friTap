@@ -42,16 +42,29 @@ def _add_socket_trace_entries(logger_instance, src_addr, dst_addr, payload):
     )
 
 
-def handle_startup_legacy(logger_instance, payload):
+def handle_startup_legacy(logger_instance, payload, script=None):
     """Handle individual startup handshake messages (pre-config_batch fallback).
 
     This is the legacy per-field handshake that older agent versions use.
     Modern agents use config_batch for a single round-trip.
 
+    The terminal ``'anti'`` request is deliberately *not* handled here anymore:
+    it now lives in ``SSL_Logger._answer_startup_handshake`` together with
+    ``'config_batch'``, so that a single owner decides which script a blocking
+    handshake is answered on. Reaching this function at all already implies
+    that responder let the payload through.
+
     Args:
         logger_instance: The SSL_Logger instance (self)
         payload: The string payload from the agent (e.g., 'experimental', 'defaultFD')
+        script: The script that asked. Defaults to ``logger_instance.script``,
+            which is only correct while a single script exists.
+
+    Returns:
+        True if ``payload`` named a legacy channel and was answered, so callers
+        can tell an answered handshake from a string they must keep routing.
     """
+    target = script if script is not None else logger_instance.script
     startup_responses = {
         'experimental': ('experimental', logger_instance.experimental),
         'defaultFD': ('defaultFD', logger_instance.enable_default_fd),
@@ -65,10 +78,10 @@ def handle_startup_legacy(logger_instance, payload):
     }
     if payload in startup_responses:
         msg_type_key, value = startup_responses[payload]
-        logger_instance._backend.post_message(logger_instance.script, msg_type_key, value)
-    elif payload == 'anti':
-        logger_instance._backend.post_message(logger_instance.script, 'antiroot', logger_instance.anti_root)
-        logger_instance.startup = False
+        logger_instance._backend.post_message(target, msg_type_key, value)
+        return True
+
+    return False
 
 
 def handle_message_legacy(logger_instance, payload, data, message):

@@ -2,8 +2,9 @@ import { hookRegistry, HookRegistry } from "../shared/registry.js";
 import { selected_protocol, use_modern, scan_results } from "../fritap_agent.js";
 import { processScanResults } from "../shared/library_scanner.js";
 import { log, devlog } from "../util/log.js";
-import { getModuleNames, ssl_library_loader, hookDynamicLoader, installOhttpHooks } from "../shared/shared_functions.js";
+import { getModuleNames, ssl_library_loader, hookDynamicLoader, installOhttpHooks, runInstallPhases } from "../shared/shared_functions.js";
 import { Platform, PLATFORM_DARWIN } from "../shared/shared_structures.js";
+import { VERSIONED_LIBSSL_DYLIB, SYSTEM_LIBRESSL_PATH, ANY_LIBSSL_DYLIB } from "../shared/darwin_library_patterns.js";
 import { boring_execute, ssl_python_execute } from "../legacy/tls/platforms/macos/openssl_boringssl_macos.js";
 import { boring_execute_modern, ssl_python_execute_modern } from "../tls/platforms/macos/openssl_boringssl_macos.js";
 import { libressl_execute } from "../legacy/tls/platforms/macos/libressl_macos.js";
@@ -22,13 +23,12 @@ import { neqo_execute } from "../quic/platforms/macos/neqo_macos.js";
 
 
 var plattform_name: Platform = PLATFORM_DARWIN;
-var moduleNames: Array<string> = getModuleNames()
 
 export const socket_library = "libSystem.B.dylib"
 
 
 function hook_macOS_SSL_Libs(hookRegistry: HookRegistry, is_base_hook: boolean) {
-    ssl_library_loader(plattform_name, hookRegistry, moduleNames, "MacOS", is_base_hook, selected_protocol)
+    ssl_library_loader(plattform_name, hookRegistry, getModuleNames(), "MacOS", is_base_hook, selected_protocol)
 }
 
 
@@ -37,10 +37,43 @@ export function load_macos_hooking_agent() {
     hookRegistry.registerAll([
         // TLS libraries (TLS protocol family — also covers QUIC and OHTTP below)
         { platform: plattform_name, pattern: /.*libboringssl\.dylib/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "BoringSSL", libraryType: "boringssl", protocol: "tls" },
-        // LibreSSL (macOS system SSL at /usr/lib/libssl.*.dylib) — must be before generic OpenSSL
-        { platform: plattform_name, pattern: /libssl\.\d+\.dylib/, hookFn: (use_modern ? libressl_execute_modern : libressl_execute), library: "LibreSSL", pathFilter: "/usr/lib/", priority: 150, libraryType: "libressl", protocol: "tls" },
-        { platform: plattform_name, pattern: /.*libssl.*\.dylib/, hookFn: (use_modern ? ssl_python_execute_modern : ssl_python_execute), library: "Python OpenSSL", pathFilter: "python", libraryType: "openssl", protocol: "tls" },
-        { platform: plattform_name, pattern: /.*libssl.*\.dylib/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", excludePattern: /^libssl\.\d+\.dylib$/, libraryType: "openssl", protocol: "tls" },
+        // ── The libssl*.dylib name space, partitioned three ways ──────────────
+        // Exhaustive and mutually exclusive by construction, which matters
+        // because ssl_library_loader invokes EVERY match, not the first:
+        //   * name is versioned (VERSIONED_LIBSSL_DYLIB) -> LibreSSL xor OpenSSL,
+        //     split by SYSTEM_LIBRESSL_PATH. The two entries share an identical
+        //     pattern and complementary predicates over that ONE constant, so
+        //     exactly one survives — including when the module path is unknown,
+        //     where pathFilter fails closed and excludePathFilter fails open.
+        //   * name is libssl-shaped but not versioned -> the generic entry only,
+        //     since its excludePattern IS VERSIONED_LIBSSL_DYLIB.
+        //   * neither -> not a libssl, no hook.
+        //
+        // LibreSSL: macOS system SSL. Its executor carries the tier-2 KDF hooks
+        // (tls1_PRF / tls13_hkdf_expand_label) that Apple's pre-3.5 LibreSSL
+        // needs, so a false negative here costs keys outright.
+        { platform: plattform_name, pattern: VERSIONED_LIBSSL_DYLIB, hookFn: (use_modern ? libressl_execute_modern : libressl_execute), library: "LibreSSL", pathFilter: SYSTEM_LIBRESSL_PATH, priority: 150, libraryType: "libressl", protocol: "tls" },
+        // Genuine OpenSSL: every versioned libssl that is NOT the system one —
+        // Homebrew (arm64 /opt/homebrew and Intel /usr/local), pyenv, MacPorts,
+        // conda, python.org and Xcode framework Pythons, and app bundles.
+        //
+        // ssl_python_execute* is the genuine-OpenSSL executor; the "python" in
+        // its name is historical, from when a framework Python was the only case
+        // anyone had here. boring_execute* must NOT be used for real OpenSSL: in
+        // modern mode it is skipReadWriteHooks + libraryType "boringssl", which
+        // drops the read/write hooks and sends the hook chain hunting a
+        // bssl::ssl_log_secret symbol that cannot exist in OpenSSL (then into a
+        // pointless Memory.scan); in legacy mode it writes an Apple BoringSSL
+        // struct offset into a genuine OpenSSL SSL_CTX.
+        //
+        // priority 120 is load-bearing, not cosmetic: it makes THIS entry the
+        // deterministic winner of findByLibraryType(darwin, "openssl") on the
+        // tlsLibHunter scan path, which previously depended on Array#sort
+        // stability at equal priority. Do not "tidy" it away.
+        { platform: plattform_name, pattern: VERSIONED_LIBSSL_DYLIB, hookFn: (use_modern ? ssl_python_execute_modern : ssl_python_execute), library: "OpenSSL", excludePathFilter: SYSTEM_LIBRESSL_PATH, priority: 120, libraryType: "openssl", protocol: "tls" },
+        // Everything else called libssl*: libssl.dylib, libssl_custom.dylib,
+        // mylibssl.3.dylib, and statically-bundled BoringSSL copies.
+        { platform: plattform_name, pattern: ANY_LIBSSL_DYLIB, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", excludePattern: VERSIONED_LIBSSL_DYLIB, libraryType: "openssl", protocol: "tls" },
         { platform: plattform_name, pattern: /.*cronet.*\.dylib/, hookFn: (use_modern ? cronet_execute_modern : cronet_execute), library: "Cronet", libraryType: "boringssl", protocol: "tls" },
         { platform: plattform_name, pattern: /.*libnss[0-9]*\.dylib/, hookFn: (use_modern ? nss_execute_modern : nss_execute), library: "NSS", libraryType: "nss", protocol: "tls" },
         // SSH binaries / libraries
@@ -55,14 +88,31 @@ export function load_macos_hooking_agent() {
         { platform: plattform_name, pattern: /^XUL$/, hookFn: neqo_execute, library: "Mozilla Neqo (Firefox HTTP/3)", libraryType: "neqo", protocol: "tls" },
     ]);
 
-    hook_macOS_SSL_Libs(hookRegistry, true); // actually we are using the same implementation as we did on iOS, therefore this needs addtional testing
     const macosLoaderConfig = {
         platform: plattform_name,
         platformLabel: "MacOS",
         loaderLibrary: /libSystem.B.dylib/,
         functionName: "dlopen",
+        // Resolve the module path in the dlopen onLeave (as Linux already does).
+        // Without it `modulePath` is undefined on the dynamic-load path, where
+        // `_isExcluded` fails closed for a positive `pathFilter` — so the
+        // LibreSSL entry above could never install for a library that appears
+        // after attach. Python's `_ssl` loads its libssl lazily, which is exactly
+        // that case. The lookup in hookDynamicLoader is try/catch-guarded, so a
+        // not-yet-resolvable module degrades to "no path" instead of throwing
+        // inside the loader hook; the OpenSSL entry's `excludePathFilter` fails
+        // OPEN precisely so that degraded case still gets a hook.
+        extractModulePath: true,
     };
-    installOhttpHooks(plattform_name, hookRegistry, moduleNames, "MacOS", macosLoaderConfig);
-    processScanResults(scan_results, plattform_name, true, selected_protocol);
-    hookDynamicLoader(macosLoaderConfig, hookRegistry, moduleNames, false, selected_protocol);
+
+    // Same phase order as before, now contained + breadcrumbed + yielded. Phase 0
+    // stays synchronous so the base TLS hooks are live before the host resumes a
+    // spawned target.
+    runInstallPhases("MacOS", [
+        // NOTE: shares the iOS implementation, so it needs the same additional testing.
+        { label: "ssl-libs",     fn: () => hook_macOS_SSL_Libs(hookRegistry, true) },
+        { label: "ohttp",        fn: () => installOhttpHooks(plattform_name, hookRegistry, getModuleNames(), "MacOS", macosLoaderConfig) },
+        { label: "scan-results", fn: () => processScanResults(scan_results, plattform_name, true, selected_protocol) },
+        { label: "loader",       fn: () => hookDynamicLoader(macosLoaderConfig, hookRegistry, getModuleNames(), false, selected_protocol) },
+    ]);
 }

@@ -190,16 +190,9 @@ fritap --help
 
 ### Expected Output
 
-```
-friTap v2.0.8
-Usage: fritap [OPTIONS] TARGET
-
-Options:
-  -m, --mobile                    Mobile application analysis
-  -k, --keylog PATH               Save TLS keys to file
-  -p, --pcap PATH                 Save decrypted traffic to PCAP
-  --help                          Show this message and exit
-```
+`fritap --version` prints `friTap v<version>`. `fritap --help` prints the full
+argparse usage block — every flag with its help text. If both commands run
+without a traceback, the installation is good.
 
 ## Common Installation Issues
 
@@ -290,7 +283,7 @@ friTap automatically installs the following dependencies:
     friTap bundles a pre-built JavaScript agent at `friTap/fritap_agent.js`, so
     installing the package is all you need to run captures — there is **no**
     Node/TypeScript toolchain required for normal use. Contributors who change
-    the agent source under `agent/` rebuild it with `npm run build` (see
+    the agent source under `agent/` rebuild it with `./dev/compile_agent.sh` (see
     [Architecture](../development/architecture.md) for the build pipeline).
 
 ## Optional Dependencies

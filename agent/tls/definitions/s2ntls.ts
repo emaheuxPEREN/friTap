@@ -8,7 +8,14 @@ import { devlog, log } from "../../util/log.js";
 import { STANDARD_SOCKET_SYMBOLS } from "./shared_constants.js";
 import { noOpClientRandomDecoder } from "./shared_factories.js";
 
-const keylog_callback = new NativeCallback(
+// Created lazily: a NativeCallback allocates an executable page, and doing that at
+// module scope meant every friTap run on every platform paid for it (and asked the
+// target for RX memory) even though s2n-tls is absent from all Apple/Android targets.
+let _keylog_callback: any = null;
+
+function getKeylogCallback(): any {
+    if (_keylog_callback !== null) return _keylog_callback;
+    _keylog_callback = new NativeCallback(
     function (ctxPtr: NativePointer, conn: NativePointer, logline: NativePointer, len: NativePointer) {
         devlog("invoking keylog_callback from s2ntls");
         sendKeylog(logline.readCString(len.toInt32()));
@@ -16,7 +23,9 @@ const keylog_callback = new NativeCallback(
     },
     "int",
     ["pointer", "pointer", "pointer", "pointer"],
-);
+    );
+    return _keylog_callback;
+}
 
 // Pre-allocated buffer for fd output (reused across calls)
 const _fdPtr = Memory.alloc(Process.pointerSize);
@@ -77,7 +86,7 @@ export function createS2nTlsDefinition(): HookDefinition {
                 if (configNewAddr && !configNewAddr.isNull()) {
                     Interceptor.attach(configNewAddr, {
                         onLeave: function (retval: any) {
-                            resolvedFns["s2n_config_set_key_log_cb"](retval, keylog_callback, ptr("0"));
+                            resolvedFns["s2n_config_set_key_log_cb"](retval, getKeylogCallback(), ptr("0"));
                         },
                     });
                     installed = true;

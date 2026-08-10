@@ -18,13 +18,13 @@ BoringSSL is Google's fork of OpenSSL, designed for use in Google's various prod
 |----------|---------------|-----------------|-------|
 | Linux    | ✓ Full       | ✓ Full         | All versions |
 | Windows  | ✓ Limited    | ✓ Full         | Read/Write hooks only |
-| macOS    | Keys      | ✓ Full         | Key extraction only |
+| macOS    | ✓ Keys       | ✗ Not available | Apple's `/usr/lib/libboringssl.dylib`. Keys only — see [Apple BoringSSL](#apple-boringssl-macos-and-ios). |
 | Android  | ✓ Full       | ✓ Full         | All Android versions |
-| iOS      | Keys      | ✓ Full         | Key extraction only |
+| iOS      | ✓ Keys       | ✗ Not available | Same Apple BoringSSL as macOS. Keys only — see [Apple BoringSSL](#apple-boringssl-macos-and-ios). |
 
 **Legend:**
 - **Full**: Complete key extraction and traffic capture
-- **KeyEo**: Key extraction only
+- **Keys**: Key extraction only — no plaintext interception
 - **Limited**: Partial functionality
 
 ## Detection Methods
@@ -65,10 +65,34 @@ fritap --patterns boringssl_patterns.json -k keys.log target_app
 BoringSSL is often found in these modules:
 - `libssl.so` (traditional)
 - `libboringssl.so` (standalone)
+- `/usr/lib/libboringssl.dylib` (**Apple** — macOS and iOS; backs CFNetwork, URLSession and Network.framework)
 - `libflutter.so` (Flutter apps)
 - `libcronet.so` (Chrome/Android)
 - `libhttpengine.so` (statically linked; `SSL_*` may live only in `.symtab`)
 - `libcommerce_http_client.so` (Blizzard commerce SDK — curl + statically-linked BoringSSL; also covered by [`--pairip-safe`](../advanced/pairip-safe.md))
+
+### Apple BoringSSL (macOS and iOS)
+
+Apple ships its own BoringSSL as `/usr/lib/libboringssl.dylib`, and it is the TLS
+stack underneath CFNetwork, URLSession and Network.framework. Two Apple-specific
+properties shape what friTap can do there:
+
+- **Keys only, no plaintext.** The socket file descriptor cannot be recovered from
+  an `SSL_read`/`SSL_write` call on Apple platforms, so friTap installs no plaintext
+  hooks for Apple BoringSSL. Use the extracted keylog with Wireshark.
+- **The keylog callback is not exported.** Apple does not export
+  `SSL_CTX_set_keylog_callback`. friTap instead hooks the exported
+  `SSL_CTX_set_info_callback` and writes its keylog callback pointer **directly into
+  the live `SSL_CTX` struct** at a byte offset, which it derives at run time by
+  disassembling the non-exported setter (falling back to a per-OS-version table).
+
+!!! warning "A wrong offset kills the target"
+    Writing a function pointer at the wrong `SSL_CTX` offset corrupts an unrelated
+    field and crashes the process — the symptom reported in
+    [fkie-cad/friTap#65](https://github.com/fkie-cad/friTap/discussions/65). The
+    offset table, which values are actually measured, and the
+    `dev/derive_boringssl_keylog_offset.py` helper are documented in the
+    [macOS Platform Guide](../platforms/macos.md#apple-boringssl-keylog-offsets).
 
 ## Usage Examples
 
@@ -234,7 +258,7 @@ if (Process.platform === "linux") {
 
 ```bash
 # Check if BoringSSL is loaded
-fritap --list-libraries target_app | grep -i boring
+fritap --list-libraries target_app 2>&1 | grep -i boring
 
 # Enable debug output
 fritap -do -v target_app
@@ -299,7 +323,7 @@ fritap -m --list-libraries com.apple.mobilesafari
 fritap -k keys.log chrome.exe
 
 # Check for Windows-specific modules
-fritap --list-libraries chrome.exe | grep -i ssl
+fritap --list-libraries chrome.exe 2>&1 | grep -i ssl
 ```
 
 ## Integration Examples

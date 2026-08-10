@@ -15,6 +15,7 @@ from abc import abstractmethod
 from enum import Enum
 from typing import Any, List, Optional, TYPE_CHECKING
 
+from ..backends.base import BackendScriptLoadTimeout
 from .base import FriTapPlugin
 
 if TYPE_CHECKING:
@@ -114,7 +115,7 @@ class ScriptPlugin(FriTapPlugin):
 
         script = context.backend.create_script(context.process, source, runtime=context.runtime)
         context.backend.on_message(script, self._route_message)
-        context.backend.load_script(script)
+        self._load_script_bounded(context, script)
         self._scripts.append(script)
         logger.info("Plugin %s: script loaded (order=%s)", self.name, self.load_order.value)
 
@@ -169,6 +170,27 @@ class ScriptPlugin(FriTapPlugin):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _load_script_bounded(self, context: "ScriptContext", script: Any) -> None:
+        """Load *script* under the bound carried by *context*.
+
+        A plugin's script is user-supplied JavaScript, so its top-level code can
+        wedge exactly like the main agent's can — and Frida's ``script.load()``
+        is not cancellable. Without a bound a single bad plugin script hangs
+        friTap forever with no diagnostic; with one it becomes a
+        ``BackendScriptLoadTimeout`` that ``PluginLoader.instrument_all()`` logs
+        before carrying on without the plugin.
+
+        The plugin has no progress trail of its own, so the plugin name is
+        attached as the breadcrumb — it is the one thing that tells the user
+        *which* script wedged.
+        """
+        try:
+            context.backend.load_script(script, timeout=context.script_load_timeout)
+        except BackendScriptLoadTimeout as exc:
+            if not exc.breadcrumb:
+                exc.breadcrumb = f"plugin:{self.name}"
+            raise
 
     def _route_message(self, message: dict, data: Any) -> None:
         """Trampoline: routes backend messages to on_script_message with error guard."""

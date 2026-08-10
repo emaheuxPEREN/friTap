@@ -36,12 +36,11 @@ import { google_quiche_execute } from "../quic/platforms/linux/google_quiche_lin
 import { neqo_execute } from "../quic/platforms/linux/neqo_linux.js";
 
 var plattform_name: Platform = PLATFORM_LINUX;
-var moduleNames: Array<string> = getModuleNames()
 
 export const socket_library = "libc"
 
 function hook_Linux_SSL_Libs(hookRegistry: HookRegistry, is_base_hook: boolean) {
-    ssl_library_loader(plattform_name, hookRegistry, moduleNames, "Linux", is_base_hook, selected_protocol)
+    ssl_library_loader(plattform_name, hookRegistry, getModuleNames(), "Linux", is_base_hook, selected_protocol)
 }
 
 // --quic-only on Linux: install ONLY QUIC hooks (Cloudflare quiche, Google
@@ -86,7 +85,7 @@ export function load_linux_hooking_agent(skipLoaderHook: boolean = false) {
         phases.push({ label: "quic-hooks", fn: () => hook_Linux_SSL_Libs(hookRegistry, true) });
         phases.push({
             label: "loader",
-            fn: () => hookDynamicLoader(linuxLoaderConfig, hookRegistry, moduleNames, false, selected_protocol),
+            fn: () => hookDynamicLoader(linuxLoaderConfig, hookRegistry, getModuleNames(), false, selected_protocol),
         });
 
         const runPhase = (i: number) => {
@@ -106,7 +105,12 @@ export function load_linux_hooking_agent(skipLoaderHook: boolean = false) {
     hookRegistry.registerAll([
         // TLS libraries (TLS protocol family — also covers QUIC and OHTTP below)
         { platform: plattform_name, pattern: /.*libssl_sb.so/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", libraryType: "openssl", protocol: "tls" },
-        { platform: plattform_name, pattern: /.*libssl\.so/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", libraryType: "openssl", protocol: "tls" },
+        // excludePathFilter is the exact complement of the next entry's
+        // pathFilter. Without it a Python's own libssl (e.g.
+        // /usr/lib/python3.11/lib-dynload/../../libssl.so.3) matched BOTH, and
+        // since ssl_library_loader invokes EVERY match, two executors installed
+        // on the same module.
+        { platform: plattform_name, pattern: /.*libssl\.so/, hookFn: (use_modern ? boring_execute_modern : boring_execute), library: "OpenSSL/BoringSSL", excludePathFilter: "python", libraryType: "openssl", protocol: "tls" },
         { platform: plattform_name, pattern: /.*libssl.*\.so/, hookFn: (use_modern ? ssl_python_execute_modern : ssl_python_execute), library: "Python OpenSSL", pathFilter: "python", libraryType: "openssl", protocol: "tls" },
         { platform: plattform_name, pattern: /.*cronet.*\.so/, excludePattern: /_(libpki|libcrypto)\.so$/, hookFn: (use_modern ? cronet_execute_modern : cronet_execute), library: "Cronet", libraryType: "boringssl", protocol: "tls" },
         { platform: plattform_name, pattern: /.*libgnutls\.so/, hookFn: (use_modern ? gnutls_execute_modern : gnutls_execute), library: "GnuTLS", libraryType: "gnutls", protocol: "tls" },
@@ -142,7 +146,7 @@ export function load_linux_hooking_agent(skipLoaderHook: boolean = false) {
         extractModulePath: true,
     };
 
-    installOhttpHooks(plattform_name, hookRegistry, moduleNames, "Linux", linuxLoaderConfig, skipLoaderHook);
+    installOhttpHooks(plattform_name, hookRegistry, getModuleNames(), "Linux", linuxLoaderConfig, skipLoaderHook);
     processScanResults(scan_results, plattform_name, true, selected_protocol);
     // Wine callers pass skipLoaderHook=true: Wine uses its own preloader, not
     // libdl.dlopen, so the inline trampoline only grows the spawn-time footprint
@@ -150,6 +154,6 @@ export function load_linux_hooking_agent(skipLoaderHook: boolean = false) {
     // hook_Wine_LdrLoadDll (see agent/platforms/wine.ts), armed once ntdll
     // appears.
     if (!skipLoaderHook) {
-        hookDynamicLoader(linuxLoaderConfig, hookRegistry, moduleNames, false, selected_protocol);
+        hookDynamicLoader(linuxLoaderConfig, hookRegistry, getModuleNames(), false, selected_protocol);
     }
 }

@@ -137,7 +137,7 @@ leave it at `auto`.
 
 ### Debugging chain resolution — `-do`
 
-`-do` / `--debugoutput` is propagated to the agent. When set, the chain
+`-do` / `--debug-output` is propagated to the agent. When set, the chain
 resolver dumps every candidate it considered for each chain label:
 
 ```

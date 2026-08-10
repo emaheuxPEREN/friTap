@@ -8,7 +8,7 @@ This guide covers Linux-specific setup, considerations, and best practices for u
 
 - **Linux distribution** (Ubuntu 18.04+, CentOS 7+, Fedora 30+, etc.)
 - **Root access** (required for most analysis)
-- **Python 3.8+** installed
+- **Python 3.10+** installed (`setup.py` sets `python_requires=">=3.10"`)
 - **x86_64 or ARM64 architecture**
 
 ### Package Installation
@@ -137,7 +137,7 @@ frida-ps
 sudo fritap -k openssl_keys.log firefox
 
 # Debug OpenSSL detection
-sudo fritap -do -v firefox | grep -i openssl
+sudo fritap -do -v firefox 2>&1 | grep -i openssl
 ```
 
 **GnuTLS:**
@@ -613,7 +613,7 @@ sudo fritap -k analysis_$(date +%Y%m%d)/keys/app_keys.log \
 
 ```bash
 # Use minimal privileges
-sudo fritap --no-root-check -k keys.log application
+sudo fritap -k keys.log application
 
 # Sandbox analysis
 firejail --net=none fritap -k keys.log application

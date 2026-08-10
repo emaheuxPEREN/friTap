@@ -221,7 +221,9 @@ class GDBBackend(Backend):
         fn_names = self._extract_function_names(script_source)
         return GDBScript(fn_names)
 
-    def load_script(self, script: Any) -> None:
+    def load_script(self, script: Any, *, timeout: float | None = None) -> None:
+        # *timeout* is accepted for interface parity and ignored: a GDB script
+        # load is synchronous and cheap, so it cannot wedge like a Frida agent.
         if isinstance(script, GDBScript):
             script.load()
 

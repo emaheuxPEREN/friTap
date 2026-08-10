@@ -371,7 +371,7 @@ function createKeylogConfigHook(): ExtraHookDef {
 function createKeylogPipe(): [number, number] {
     try {
         const pipeFn = new NativeFunction(
-            (Module as any).findExportByName(null, "pipe")!,
+            Module.getGlobalExportByName("pipe"),
             "int",
             ["pointer"],
         );
@@ -395,8 +395,16 @@ function createKeylogPipe(): [number, number] {
 function startKeylogPipeReader(readFd: number): void {
     if (readFd < 0) return;
 
+    // findGlobalExportByName + null check rather than findExportByName(null, ...)!,
+    // which THROWS on a miss — and this call site is not inside a try/catch, so the
+    // throw escaped createQuicheDefinition() entirely.
+    const readAddr = Module.findGlobalExportByName("read");
+    if (readAddr === null || readAddr.isNull()) {
+        devlog("[quiche] libc 'read' unresolved — keylog pipe reader disabled");
+        return;
+    }
     const readFn = new NativeFunction(
-        (Module as any).findExportByName(null, "read")!,
+        readAddr,
         "ssize_t",
         ["int", "pointer", "size_t"],
     );
@@ -436,7 +444,7 @@ function startKeylogPipeReader(readFd: number): void {
     // Create a pthread to run the reader
     try {
         const pthreadCreate = new NativeFunction(
-            (Module as any).findExportByName(null, "pthread_create")!,
+            Module.getGlobalExportByName("pthread_create"),
             "int",
             ["pointer", "pointer", "pointer", "pointer"],
         );

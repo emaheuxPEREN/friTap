@@ -7,7 +7,7 @@ import { load_wine_hooking_agent } from "./platforms/wine.js";
 import { isWindows, isLinux, isWine, isAndroid, isiOS, isMacOS, getDetailedPlatformInfo } from "./util/process_infos.js";
 import { anti_root_execute } from "./util/anti_root.js";
 import { socket_trace_execute } from "./misc/socket_tracer.js"
-import { devlog, log } from "./util/log.js";
+import { devlog, log, hookBreadcrumb } from "./util/log.js";
 import { initializePipeline } from "./shared/pipeline_utils.js";
 import { AGENT_ABI_VERSION } from "./shared/generated_constants.js";
 // Process-wide runtime state lives in the side-effect-free shared_structures
@@ -27,6 +27,69 @@ import { stopBlink } from "./shared/pairip_blink.js";
 
 // global address which stores the addresses of the hooked modules which aren't loaded via the dynamic loader
 (globalThis as any).init_addresses = {};
+
+/**
+ * Run one named startup stage, emitting a breadcrumb BEFORE it executes.
+ *
+ * The breadcrumb is what survives a NATIVE death. When the agent kills the target
+ * during startup there is no JS exception for Frida to report — the host just sees
+ * "the connection is closed" and has no idea how far the agent got (this is exactly
+ * what fkie-cad/friTap#65 reported on iOS, and it reproduces in spawn mode on
+ * macOS). Because the host records every breadcrumb as it arrives
+ * (ssl_logger_core: _on_hook_breadcrumb) and prints the last one in its crash
+ * message, sending the stage name up-front turns "it died somewhere" into "it died
+ * in platform-detect".
+ *
+ * `fatal: false` contains a stage failure: the error is reported and startup
+ * continues, so one broken subsystem cannot cost the user every other hook.
+ */
+function initStage<T>(stage: string, fn: () => T, fatal: boolean = true): T | undefined {
+    hookBreadcrumb(`agent-init: ${stage}`);
+    devlog(`[init] stage: ${stage}`);
+    try {
+        return fn();
+    } catch (e: any) {
+        hookBreadcrumb(`agent-init-FAILED: ${stage}`);
+        log(`[-] friTap agent init failed in stage '${stage}': ${e && e.stack ? e.stack : e}`);
+        if (fatal) throw e;
+        return undefined;
+    }
+}
+
+// Declared BEFORE anything that can throw or kill the target, so the host's
+// agent_abi_version() / graceful_detach() calls keep working even when startup
+// fails. Previously this sat at the very end of the module, so any init failure
+// left the host with no RPC surface and an obscure error instead of a diagnosis.
+// Safe this early: agentAbiVersion returns a compile-time constant, and every
+// gracefulDetach step is either a plain setter on the already-initialised
+// shared_structures module or a no-op that is individually try/catch-wrapped.
+rpc.exports = {
+    //@ts-ignore
+    agentAbiVersion(): number {
+        // Reports the ABI this bundle was compiled against so the Python host
+        // can detect a stale / mismatched bundle (see AGENT_ABI_VERSION in
+        // friTap/constants.py, mirrored here via generated_constants). Frida 17+
+        // maps this to Python `script.exports_sync.agent_abi_version()`.
+        return AGENT_ABI_VERSION;
+    },
+    //@ts-ignore
+    gracefulDetach(): void {
+        // Set the shutdown flag BEFORE Interceptor.detachAll so any callback
+        // already mid-execution (or queued on the JS message loop) sees the
+        // flag at sendDatalog/emit and short-circuits. Order matters: if we
+        // detached first and then set the flag, callbacks already queued
+        // between the two statements would still pay the full IPC cost.
+        setIsShuttingDown(true);
+        try { stopBlink(); } catch (_e) { /* blink not active */ }
+        try {
+            Interceptor.detachAll();
+        } catch (e) {
+            try {
+                log(`[gracefulDetach] Interceptor.detachAll threw: ${e}`);
+            } catch (_e2) { /* host already gone */ }
+        }
+    }
+};
 
 interface IAddress{
     address: string,
@@ -242,12 +305,15 @@ export let stealth_loader: boolean = false;
 //@ts-ignore
 export let pairip_safe: boolean = false;
 
-// Telegram (Secret-Chat E2E + tgnet/mtproto transport) capture. Gated under
-// `--protocol telegram`. When true the android hook table installs the Telegram
-// Secret-Chat Java hooks (and, via registry.protocolMatches, the tgnet/mtproto
-// transport hooks). Selection is keyed off `selected_protocol`/`keylog_enabled`.
+// --probe (friTap#65): dry-run diagnostic. The agent detects the platform,
+// reports which branch it WOULD take via the "platform_report" message, and
+// then returns WITHOUT installing a single hook and without any other
+// target-mutating step (no anti-root, no socket tracing, no region scan).
+// It exists because the iOS crash in friTap#65 kills the target during
+// instrumentation, leaving no way to learn how far the agent got — probe mode
+// separates "platform detection works" from "hook installation kills it".
 //@ts-ignore
-export let telegram_enabled: boolean = false;
+export let probe: boolean = false;
 
 /**
  * Perform a send/recv handshake with the Python host to receive a configuration value.
@@ -267,7 +333,8 @@ function recvHandshake<T>(sendChannel: string, defaultValue: T, recvChannel?: st
 }
 
 /* Batch config handshake: receive all config values in a single IPC round-trip */
-const config_batch = recvHandshake<Record<string, any>>("config_batch", {});
+const config_batch = initStage("config-handshake",
+    () => recvHandshake<Record<string, any>>("config_batch", {})) as Record<string, any>;
 setOffsets(config_batch.offsets ?? offsets);
 // `--offsets` is delivered over config_batch as the raw JSON *string* (the file
 // contents / json argument), so parse it once here into the object that
@@ -316,17 +383,17 @@ stealth_loader = config_batch.stealth_loader ?? stealth_loader;
 pairip_safe = config_batch.pairip_safe ?? pairip_safe;
 quic_egress_headers_layer = config_batch.quic_egress_headers_layer ?? quic_egress_headers_layer;
 debug_output = config_batch.debug_output ?? debug_output;
-telegram_enabled = config_batch.telegram_enabled ?? telegram_enabled;
+probe = config_batch.probe ?? probe;
 // Generic feature-config passthrough (e.g. { scan_region } for the public
 // memory-scan engine). Protocol-agnostic: the public core never inspects a
 // private sub-key; private units read their own keys from config_extensions.
 setConfigExtensions(config_batch.extensions ?? {});
 
 // "anti" handshake must be LAST in the startup sequence to prevent deadlock
-anti_root = recvHandshake("anti", anti_root, "antiroot");
+anti_root = initStage("anti-handshake", () => recvHandshake("anti", anti_root, "antiroot")) as boolean;
 
 // Initialize the hooking pipeline centrally so it is ready before any library constructor runs.
-initializePipeline(parsedPatterns ?? undefined, experimental);
+initStage("pipeline-init", () => initializePipeline(parsedPatterns ?? undefined, experimental));
 
 
 
@@ -353,82 +420,207 @@ export function getParsedPatterns(): any {
 }
 
 
-function load_os_specific_agent() {
-    // Log detailed platform information for debugging
-     const platformInfo = getDetailedPlatformInfo();
-    // devlog(`[Platform Detection] Detailed info: ${JSON.stringify(platformInfo, null, 2)}`); // uncomment for debugging
-    
-    if(isWindows()){
-        log('Running Script on Windows')
-        if(install_lsass_hook){
-            load_windows_lsass_agent();
-        }else{
-            log('Skipping LSASS hooking as per configuration');
-        }
-        load_windows_hooking_agent()
-    }else if(isAndroid()){
-        log('Running Script on Android')
-        if(anti_root){
-            log('Applying anti root checks');
-            anti_root_execute();
-        }
-        if(enable_socket_tracing){
-            socket_trace_execute();
-        }
-        load_android_hooking_agent()
-    }else if(isWine()){
-        // Wine must be checked BEFORE isLinux() since Wine processes are Linux processes
-        if(experimental){
-            log('Running Script on Wine (experimental)')
-            if(enable_socket_tracing){
-                socket_trace_execute();
-            }
-            load_wine_hooking_agent()
-        }else{
-            log('[!] Wine process detected. Wine support is experimental and requires the --experimental flag.')
-            log('[!] Falling back to standard Linux agent.')
-            if(enable_socket_tracing){
-                socket_trace_execute();
-            }
-            load_linux_hooking_agent()
-        }
-    }else if(isLinux()){
-        if(enable_socket_tracing){
-            socket_trace_execute();
-        }
-        log('Running Script on Linux')
-        load_linux_hooking_agent()
-    }else if(isiOS()){
-        if(enable_socket_tracing){
-            socket_trace_execute();
-        }
-        log('Running Script on iOS')
-        // devlog(`[iOS Detection] Architecture: ${Process.arch}, Platform: ${Process.platform}`); // uncomment for debugging
-        load_ios_hooking_agent()
-    }else if(isMacOS()){
-        if(enable_socket_tracing){
-            socket_trace_execute();
-        }
-        log('Running Script on MacOS')
-        // devlog(`[macOS Detection] Architecture: ${Process.arch}, Platform: ${Process.platform}`); // uncomment for debugging
-        load_macos_hooking_agent()
-    }else{
-        log('Running Script on unknown platform')
-        log(`Platform: ${Process.platform}, Architecture: ${Process.arch}`)
-        log("Error: not supported platform!\nIf you want to have support for this platform please make an issue at our github page.")
-        devlog(`[Unknown Platform] Full detection info: ${JSON.stringify(platformInfo, null, 2)}`);
-    }
+/**
+ * Which platform's hooks to install.
+ *
+ * Split out from the dispatch below so platform DETECTION is its own named init
+ * stage: on Apple platforms these predicates make live Objective-C calls, and in
+ * spawn mode they run inside a still-suspended process whose Foundation may not be
+ * initialised yet — so this is a place the agent can die, and the breadcrumb has to
+ * be able to say so.
+ *
+ * Order is load-bearing: Wine processes ARE Linux processes, so isWine() must be
+ * asked before isLinux().
+ */
+type TargetKind = "windows" | "android" | "wine" | "linux" | "ios" | "macos" | "unknown";
 
+function detectTarget(): TargetKind {
+    if (isWindows()) return "windows";
+    if (isAndroid()) return "android";
+    if (isWine()) return "wine";
+    if (isLinux()) return "linux";
+    if (isiOS()) return "ios";
+    if (isMacOS()) return "macos";
+    return "unknown";
 }
 
-load_os_specific_agent();
+/**
+ * What the agent decided to do, split from actually doing it.
+ *
+ * `label` is the human-readable platform name that gets logged AND reported to
+ * the host; `install()` is everything that touches the target. The split is what
+ * makes `--probe` honest: probe mode reports the label and never calls the thunk,
+ * so a report can never be produced by code that already mutated the process.
+ *
+ * Consequence for maintainers: pure logging may live in planForTarget(), but
+ * ANY target interaction (hook installation, anti-root patching, socket tracing)
+ * MUST live inside install().
+ */
+interface PlatformPlan {
+    label: string;
+    install: () => void;
+}
+
+/**
+ * Optional socket tracing, shared by every platform that supports it.
+ *
+ * Enabled on android / wine / linux / ios / macos — deliberately NOT on windows
+ * (the Windows branch has never called it) and not on the unknown-platform
+ * branch (nothing gets hooked there anyway).
+ */
+function maybe_trace_sockets(): void {
+    if (enable_socket_tracing) {
+        socket_trace_execute();
+    }
+}
+
+function planForTarget(target: TargetKind): PlatformPlan {
+    switch (target) {
+        case "windows":
+            return {
+                label: 'Windows',
+                install: () => {
+                    if (install_lsass_hook) {
+                        load_windows_lsass_agent();
+                    } else {
+                        log('Skipping LSASS hooking as per configuration');
+                    }
+                    load_windows_hooking_agent();
+                }
+            };
+        case "android":
+            return {
+                label: 'Android',
+                install: () => {
+                    if (anti_root) {
+                        log('Applying anti root checks');
+                        anti_root_execute();
+                    }
+                    maybe_trace_sockets();
+                    load_android_hooking_agent();
+                }
+            };
+        case "wine":
+            // Wine must be checked BEFORE isLinux() since Wine processes are Linux
+            // processes — see detectTarget(). Without --experimental we fall back to
+            // the plain Linux agent, and the label follows the branch actually taken
+            // so a probe report never claims a Wine run that did not happen.
+            if (experimental) {
+                return {
+                    label: 'Wine (experimental)',
+                    install: () => {
+                        maybe_trace_sockets();
+                        load_wine_hooking_agent();
+                    }
+                };
+            }
+            log('[!] Wine process detected. Wine support is experimental and requires the --experimental flag.')
+            log('[!] Falling back to standard Linux agent.')
+            return {
+                label: 'Linux',
+                install: () => {
+                    maybe_trace_sockets();
+                    load_linux_hooking_agent();
+                }
+            };
+        case "linux":
+            return {
+                label: 'Linux',
+                install: () => {
+                    maybe_trace_sockets();
+                    load_linux_hooking_agent();
+                }
+            };
+        case "ios":
+            return {
+                label: 'iOS',
+                install: () => {
+                    maybe_trace_sockets();
+                    // devlog(`[iOS Detection] Architecture: ${Process.arch}, Platform: ${Process.platform}`); // uncomment for debugging
+                    load_ios_hooking_agent();
+                }
+            };
+        case "macos":
+            return {
+                label: 'MacOS',
+                install: () => {
+                    maybe_trace_sockets();
+                    // devlog(`[macOS Detection] Architecture: ${Process.arch}, Platform: ${Process.platform}`); // uncomment for debugging
+                    load_macos_hooking_agent();
+                }
+            };
+        default:
+            return {
+                label: 'unknown platform',
+                install: () => {
+                    log(`Platform: ${Process.platform}, Architecture: ${Process.arch}`)
+                    log("Error: not supported platform!\nIf you want to have support for this platform please make an issue at our github page.")
+                    // Only place the detailed (ObjC-messaging) dump is still worth its risk:
+                    // we have no idea what this platform is, and we are not going to hook it.
+                    try {
+                        devlog(`[Unknown Platform] Full detection info: ${JSON.stringify(getDetailedPlatformInfo(), null, 2)}`);
+                    } catch (e) {
+                        devlog(`[Unknown Platform] detailed info unavailable: ${e}`);
+                    }
+                }
+            };
+    }
+}
+
+function load_os_specific_agent() {
+    // NOTE: getDetailedPlatformInfo() is deliberately NOT called here.
+    // It is a debug-only dump, but it performs live ObjC messaging
+    // (+[NSProcessInfo processInfo], -operatingSystemVersionString, and six
+    // -[NSFileManager fileExistsAtPath:] calls). Running that unconditionally
+    // before platform dispatch killed spawned Apple targets outright — measured
+    // on macOS: the agent died 14ms after pipeline init and before the platform
+    // branch logged anything (fkie-cad/friTap#65). Its only consumer was a
+    // commented-out devlog; it now runs only for an unknown platform, and behind
+    // debug_output on a deferred tick.
+    const target = initStage("platform-detect", () => detectTarget()) as TargetKind;
+
+    const plan = planForTarget(target);
+    log(`Running Script on ${plan.label}`);
+    // Reported BEFORE anything is installed, so the host learns which branch was
+    // selected even if install() then kills the target (friTap#65).
+    send({ contentType: "platform_report", platform: plan.label, target: target, probe: probe, abi: AGENT_ABI_VERSION });
+
+    if (probe) {
+        log('--probe: platform reported, no hooks installed');
+        return;
+    }
+
+    plan.install();
+
+    // Deferred debug dump: same detail as before, but on a later tick and fully
+    // contained, so an ObjC call into a not-yet-initialised Foundation can neither
+    // block script.load() nor abort startup.
+    if (debug_output) {
+        setTimeout(() => {
+            try {
+                devlog(`[Platform Detection] ${JSON.stringify(getDetailedPlatformInfo(), null, 2)}`);
+            } catch (e) {
+                devlog(`[Platform Detection] detailed info unavailable: ${e}`);
+            }
+        }, 0);
+    }
+}
+
+initStage("platform-load", () => load_os_specific_agent(), /* fatal */ false);
 
 // Optional generic memory-region key scan (PUBLIC engine, agent/shared/scan/).
 // Runs only when the host passed --scan-keys-region (carried via
 // config_batch.extensions) and/or a private scan provider registered. Async and
 // fire-and-forget so it never blocks hook installation; emission is gated by
 // keylog_enabled inside sendKeyMaterial (so the host must also pass -k).
-maybeRunRegionScan(config_extensions).catch((e) => log(`[scan] failed: ${e}`));
+// Skipped entirely under --probe: scanning the target's memory regions is exactly
+// the kind of expensive target interaction a dry-run diagnostic must avoid.
+initStage("region-scan",
+    () => {
+        if (!probe) {
+            maybeRunRegionScan(config_extensions).catch((e) => log(`[scan] failed: ${e}`));
+        }
+    }, /* fatal */ false);
 
 // Best-effort graceful detach. Python calls this from
 // ssl_logger_core.detach_with_timeout() BEFORE script.unload() /
@@ -459,30 +651,8 @@ maybeRunRegionScan(config_extensions).catch((e) => log(`[scan] failed: ${e}`));
 // and the JS side MUST declare `gracefulDetach`. Don't write the snake_case
 // name in JS — Frida won't find it and you'll see
 // "unable to find method 'gracefulDetach'" at detach time.
-rpc.exports = {
-    //@ts-ignore
-    agentAbiVersion(): number {
-        // Reports the ABI this bundle was compiled against so the Python host
-        // can detect a stale / mismatched bundle (see AGENT_ABI_VERSION in
-        // friTap/constants.py, mirrored here via generated_constants). Frida 17+
-        // maps this to Python `script.exports_sync.agent_abi_version()`.
-        return AGENT_ABI_VERSION;
-    },
-    //@ts-ignore
-    gracefulDetach(): void {
-        // Set the shutdown flag BEFORE Interceptor.detachAll so any callback
-        // already mid-execution (or queued on the JS message loop) sees the
-        // flag at sendDatalog/emit and short-circuits. Order matters: if we
-        // detached first and then set the flag, callbacks already queued
-        // between the two statements would still pay the full IPC cost.
-        setIsShuttingDown(true);
-        try { stopBlink(); } catch (_e) { /* blink not active */ }
-        try {
-            Interceptor.detachAll();
-        } catch (e) {
-            try {
-                log(`[gracefulDetach] Interceptor.detachAll threw: ${e}`);
-            } catch (_e2) { /* host already gone */ }
-        }
-    }
-};
+//
+// The rpc.exports assignment itself now lives near the TOP of this module (right
+// after init_addresses) so it survives a startup failure — see the comment there.
+
+hookBreadcrumb("agent-init: complete");

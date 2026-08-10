@@ -19,7 +19,7 @@ friTap's Wine support allows you to intercept TLS traffic from Windows applicati
 - **Linux system** with Wine installed
 - **Wine 5.0+** (recommended Wine 7.0+ for better compatibility)
 - **Root/sudo access** (required for Frida injection)
-- **Python 3.8+** with friTap installed
+- **Python 3.10+** with friTap installed (`setup.py` sets `python_requires=">=3.10"`)
 - **Frida injection privileges.** On a desktop Linux you almost always want to
   run friTap as your *own* user — `sudo` is the most common source of failure
   for Wine targets (see "Common mistake" below). Lower `kernel.yama.ptrace_scope`

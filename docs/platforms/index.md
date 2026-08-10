@@ -9,7 +9,7 @@ friTap supports multiple platforms and operating systems. This section provides 
 | Platform | Status | Guide | Key Features |
 |----------|--------|-------|--------------|
 | **Linux** | ✓ Full Support | [Linux Guide](linux.md) | Native OpenSSL/GnuTLS, BPF capture, containers |
-| **macOS** | Keys (Partial) | [macOS Guide](macos.md) | BoringSSL keylog extraction, Python OpenSSL |
+| **macOS** | Keys (Partial) | [macOS Guide](macos.md) | BoringSSL keylog extraction, OpenSSL (Homebrew/pyenv/framework), LibreSSL |
 | **Windows** | ✓ Full Support | [Windows Guide](windows.md) | Schannel (via LSASS), OpenSSL, bundled libraries |
 | **Wine** | Experimental | [Wine Guide](wine.md) | Windows apps on Linux, hybrid DLL/SO hooking |
 
@@ -26,7 +26,7 @@ friTap supports multiple platforms and operating systems. This section provides 
 
 **For Desktop Applications:**
 - **Linux**: Best for server applications, command-line tools, and development environments
-- **macOS**: Limited to BoringSSL-based applications (Chrome) and Python OpenSSL
+- **macOS**: Limited to BoringSSL-based applications (Chrome), system LibreSSL, and genuine OpenSSL (Homebrew, pyenv, MacPorts, framework Pythons)
 - **Windows**: Perfect for Windows applications - comprehensive Schannel support via LSASS hooking
 - **Wine**: Analyze Windows applications running under Wine on Linux (experimental)
 
@@ -167,10 +167,13 @@ fritap -m -k keys.log --pcap traffic.pcap com.example.app
 - Go TLS - ✓ Full support
 
 **macOS:**
-- BoringSSL (Chrome) - Keylog only
-- Python OpenSSL - Keylog only
-- Secure Transport - ✗ Not implemented
-- Network.framework - ✗ Not implemented
+- BoringSSL, incl. Apple's `/usr/lib/libboringssl.dylib` - Keylog only
+- Network.framework / CFNetwork / URLSession - Keylog only (they run their TLS *on top of* `libboringssl.dylib`, which friTap hooks)
+- LibreSSL (`/usr/lib/libssl.*.dylib`) - ✓ Keys and plaintext
+- OpenSSL (Homebrew, pyenv, MacPorts, framework Pythons) - ✓ Keys and plaintext
+- NSS - ✓ Keys and plaintext
+- Cronet, QUIC (Cloudflare/Google QUICHE, Neqo), SSH (libssh/OpenSSH) - Registered
+- Secure Transport / `libcoretls` - ✗ Not implemented
 
 **Windows:**
 - Schannel (native via LSASS) - ✓ Full support
@@ -188,11 +191,12 @@ fritap -m -k keys.log --pcap traffic.pcap com.example.app
 - Flutter - ✓ Full support
 
 **iOS:**
-- BoringSSL - Keylog only
+- BoringSSL (`/usr/lib/libboringssl.dylib`) - Keylog only
+- Network.framework / CFNetwork / URLSession - Keylog only (same module; inferred from the shared Apple stack, not device-verified)
 - Flutter - Keylog only
 - Cronet - Experimental
-- Secure Transport - ✗ Not implemented
-- Network.framework - ✗ Not implemented
+- Secure Transport / `libcoretls` - ✗ Not implemented
+- Everything else - ✗ Not implemented. iOS registers **only** BoringSSL-family patterns, so an app bundling its own OpenSSL, LibreSSL, NSS, GnuTLS, wolfSSL, mbedTLS, rustls or Go TLS is unhooked, as is **all QUIC and all SSH**. See [iOS Platform Guide](ios.md).
 
 ## Architecture Support
 

@@ -67,7 +67,9 @@ class EBPFBackend(Backend):
     def create_script(self, process: Any, script_source: str, runtime: str = "qjs") -> Any:
         self._not_implemented("create_script")
 
-    def load_script(self, script: Any) -> None:
+    def load_script(self, script: Any, *, timeout: float | None = None) -> None:
+        # *timeout* is accepted for interface parity and ignored: this backend
+        # never reaches a blocking load.
         self._not_implemented("load_script")
 
     def unload_script(self, script: Any) -> None:

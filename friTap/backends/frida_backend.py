@@ -14,6 +14,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from typing import Any, Callable, Optional
 
@@ -29,6 +30,7 @@ from .base import (
     BackendPermissionDeniedError,
     BackendProcessNotFoundError,
     BackendProcessNotRespondingError,
+    BackendScriptLoadTimeout,
     BackendTimedOutError,
     BackendTransportError,
     ProcessInfo,
@@ -176,39 +178,65 @@ def _collect_context(device: Any = None, target: Any = None) -> BackendErrorCont
     return ctx
 
 
-def _wrap_frida_errors(func):
+def _wrap_frida_errors(
+    func: Optional[Callable] = None,
+    *,
+    first_arg_is_device: bool = True,
+) -> Callable:
     """Two-tier wrapper: translates frida.* errors with rich context, and
     re-tags any other exception as a ``backend_bug`` so the TUI can clearly
     say "this is friTap's fault, not yours".
+
+    Usable bare (``@_wrap_frida_errors``) or parameterised
+    (``@_wrap_frida_errors(first_arg_is_device=False)``).
+
+    ``first_arg_is_device`` declares the decorated method's shape, because
+    only the method itself knows it: device-first methods (``attach``,
+    ``spawn``, ``query_system_parameters``, ...) take ``(device, target)`` as
+    their first two positionals and can therefore contribute device/target
+    diagnostics. Script-first methods (``create_script``, ``load_script``)
+    take a Script/Session instead — probing it as a device would wrongly
+    report ``server_reachable=False``, and for ``create_script`` the second
+    positional is the entire agent source, which must never be stringified
+    into the diagnostic context. Those declare ``first_arg_is_device=False``
+    and leave both fields unsampled (``None`` == "unknown").
     """
-    @functools.wraps(func)
-    def wrapper(self, *args, **kwargs):
-        try:
-            return func(self, *args, **kwargs)
-        except _FRIDA_EXCEPTION_TYPES as exc:
-            backend_exc_type = _EXCEPTION_MAP[type(exc)]
-            # First positional after self is usually device, second is target;
-            # this is best-effort context — we never call methods on stale args.
-            device = args[0] if args else None
-            target = args[1] if len(args) > 1 else None
-            raise backend_exc_type(
-                str(exc),
-                original_exception=exc,
-                category=_FRIDA_CATEGORY.get(type(exc), "frida_error"),
-                context=_collect_context(device, target),
-            ) from exc
-        except BackendError:
-            # Already enriched by an inner wrapped call; let it propagate.
-            raise
-        except Exception as exc:
-            raise BackendError(
-                f"Internal error in {self.__class__.__name__}.{func.__name__}: "
-                f"{type(exc).__name__}: {exc}",
-                original_exception=exc,
-                category="backend_bug",
-                context=_collect_context(),
-            ) from exc
-    return wrapper
+    def decorate(target_func: Callable) -> Callable:
+        @functools.wraps(target_func)
+        def wrapper(self, *args, **kwargs):
+            try:
+                return target_func(self, *args, **kwargs)
+            except _FRIDA_EXCEPTION_TYPES as exc:
+                backend_exc_type = _EXCEPTION_MAP[type(exc)]
+                if first_arg_is_device:
+                    # Best-effort context — we never call methods on stale args
+                    # beyond the single non-raising probe in _collect_context.
+                    device = args[0] if args else None
+                    target = args[1] if len(args) > 1 else None
+                else:
+                    device = target = None
+                raise backend_exc_type(
+                    str(exc),
+                    original_exception=exc,
+                    category=_FRIDA_CATEGORY.get(type(exc), "frida_error"),
+                    context=_collect_context(device, target),
+                ) from exc
+            except BackendError:
+                # Already enriched by an inner wrapped call; let it propagate.
+                raise
+            except Exception as exc:
+                raise BackendError(
+                    f"Internal error in {self.__class__.__name__}."
+                    f"{target_func.__name__}: {type(exc).__name__}: {exc}",
+                    original_exception=exc,
+                    category="backend_bug",
+                    context=_collect_context(),
+                ) from exc
+        return wrapper
+
+    if func is None:
+        return decorate
+    return decorate(func)
 
 
 def _is_transient_attach_error(exc: BaseException) -> bool:
@@ -266,7 +294,9 @@ class FridaBackend(Backend):
     # Device
     # ------------------------------------------------------------------
 
-    @_wrap_frida_errors
+    # Not device-first: the first positional is the *selector* (a bool or a
+    # device id), not a device object — there is nothing to probe yet.
+    @_wrap_frida_errors(first_arg_is_device=False)
     def get_device(self, mobile: bool | str = False, host: str | None = None, device_id: str | None = None) -> Any:
         if device_id:
             self._logger.debug("Attaching to pre-enumerated device with ID: %s", device_id)
@@ -356,13 +386,50 @@ class FridaBackend(Backend):
     # Script management
     # ------------------------------------------------------------------
 
-    @_wrap_frida_errors
+    # Not device-first: (session, agent source) — probing either as a device
+    # would fabricate a server_reachable=False verdict.
+    @_wrap_frida_errors(first_arg_is_device=False)
     def create_script(self, process: Any, script_source: str, runtime: str = "qjs") -> Any:
         return process.create_script(script_source, runtime=runtime)
 
-    @_wrap_frida_errors
-    def load_script(self, script: Any) -> None:
-        script.load()
+    # Not device-first: the first positional is a frida Script.
+    @_wrap_frida_errors(first_arg_is_device=False)
+    def load_script(self, script: Any, *, timeout: float | None = None) -> None:
+        if not timeout:
+            # Unbounded default: load inline so the common path stays free of
+            # any thread hand-off (and keeps frida errors on this stack).
+            script.load()
+            return
+
+        # script.load() blocks until the agent's top-level code returns, and a
+        # wedged agent never returns — so bound it on a worker thread. The
+        # worker's exception is re-raised HERE, inside the @_wrap_frida_errors
+        # frame, so frida errors still get mapped to Backend* exceptions.
+        captured: list[BaseException] = []
+
+        def _load() -> None:
+            try:
+                script.load()
+            except BaseException as exc:  # re-raised on the calling thread
+                captured.append(exc)
+
+        # daemon=True: script.load() is NOT cancellable. When the bound expires
+        # the worker is deliberately abandoned mid-load; only a daemon thread
+        # lets the host process exit without joining it.
+        started = time.monotonic()
+        loader = threading.Thread(target=_load, daemon=True, name="fritap-script-load")
+        loader.start()
+        loader.join(timeout)
+        elapsed = time.monotonic() - started
+
+        if loader.is_alive():
+            raise BackendScriptLoadTimeout(
+                f"Agent script.load() did not return within {elapsed:.1f}s",
+                elapsed_seconds=elapsed,
+                bound_seconds=timeout,
+            )
+        if captured:
+            raise captured[0]
 
     def unload_script(self, script: Any) -> None:
         # Cleanup is best-effort (the process may already be gone). Log so

@@ -8,7 +8,7 @@
         "prepare": "npm run build",
         "build": "frida-compile agent/fritap_agent.ts -o friTap/fritap_agent.js",
         "watch": "frida-compile agent/fritap_agent.ts -o friTap/_fritap_agent.js -w",
-        "test:agent": "node --import tsx --test agent/shared/arm64.test.ts agent/shared/sockaddr.test.ts agent/util/anti_tamper.test.ts agent/util/non_tls_libs.test.ts agent/shared/deep_symbol_resolution.test.ts agent/shared/wine_keylog_pattern_hook.test.ts"
+        "test:agent": "node --import tsx --test agent/shared/arm64.test.ts agent/shared/registry.test.ts agent/shared/sockaddr.test.ts agent/util/anti_tamper.test.ts agent/util/non_tls_libs.test.ts agent/util/darwin_sysctl.test.ts agent/shared/deep_symbol_resolution.test.ts agent/shared/wine_keylog_pattern_hook.test.ts agent/tls/shared/keylog_line.test.ts agent/legacy/tls/shared/apple_keylog_offset.test.ts"
     },
     "keywords": [
         "frida",

@@ -84,7 +84,7 @@ sudo fritap -k app_keys.log --pcap app_traffic.pcap --json app_metadata.json "/A
 sudo fritap -k chrome_keys.log "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 # Debug SSL library detection
-sudo fritap -do -v application | grep -i "ssl\|boring\|openssl"
+sudo fritap -do -v application 2>&1 | grep -i "ssl\|boring\|openssl"
 ```
 
 #### Applications Analysis
@@ -109,7 +109,13 @@ find "/Applications/App.app" -name "*ssl*" -o -name "*crypto*"
 sudo fritap --patterns macos_patterns.json -k keys.log application
 ```
 
-**Note**: Native macOS SSL frameworks (Secure Transport, Network.framework) are not currently supported by friTap. friTap focuses on applications that use portable SSL libraries like OpenSSL, BoringSSL, etc.
+**Note**: Apple's **Network.framework / CFNetwork / URLSession** *are* covered —
+they run their TLS on top of `/usr/lib/libboringssl.dylib`, which friTap hooks, so
+you get **keys only** (no plaintext: the socket FD cannot be recovered from
+`SSL_read`/`SSL_write` on Apple platforms). Only the legacy **Secure Transport /
+`libcoretls`** path has no hooks at all. What usually blocks Apple's own apps is
+**code signing**, not the TLS stack — see the
+[macOS Platform Guide](../platforms/macos.md).
 
 ## Specialized Libraries
 
@@ -133,7 +139,7 @@ Conscrypt is Google's Java Cryptography Architecture (JCA) provider that uses Bo
 fritap -m -k conscrypt_keys.log --pcap conscrypt_traffic.pcap --json conscrypt_metadata.json com.example.app
 
 # Debug Conscrypt detection
-fritap -m -do -v com.example.app | grep -i conscrypt
+fritap -m -do -v com.example.app 2>&1 | grep -i conscrypt
 ```
 
 #### Applications Using Conscrypt
@@ -170,7 +176,7 @@ sudo fritap -k s2n_keys.log --pcap s2n_traffic.pcap --json s2n_metadata.json aws
 sudo fritap --patterns s2n_patterns.json -k keys.log target_app
 
 # Debug S2N detection
-sudo fritap -do -v aws_application | grep -i s2n
+sudo fritap -do -v aws_application 2>&1 | grep -i s2n
 ```
 
 ### RustTLS
@@ -196,7 +202,7 @@ sudo fritap -k rusttls_keys.log --json rust_metadata.json rust_application
 sudo fritap --patterns rusttls_patterns.json -k keys.log target
 
 # Debug RustTLS detection
-sudo fritap -do -v rust_application | grep -i rust
+sudo fritap -do -v rust_application 2>&1 | grep -i rust
 ```
 
 ## Embedded and IoT Libraries
@@ -246,10 +252,26 @@ fritap -k webserver_keys.log --pcap web_traffic.pcap embedded_httpd
 
 Network.framework is Apple's modern replacement for traditional socket APIs, with built-in TLS support.
 
-**Not currently supported (no hooks implemented). Planned.** friTap does not
-hook Network.framework, so applications that rely on it cannot be analyzed. This
-is consistent with the note above: friTap focuses on portable SSL libraries
-(OpenSSL, BoringSSL, etc.) rather than Apple's native networking/TLS stacks.
+**Supported — TLS keys only.** friTap does not hook Network.framework's own API,
+and it does not need to: Network.framework, CFNetwork and URLSession all perform
+their TLS inside Apple's `/usr/lib/libboringssl.dylib`, which friTap *does* hook.
+A Swift `URLSession` client produced 220 well-formed keys attributed to that
+module (measured on macOS/Apple arm64; iOS shares the same module and CFNetwork
+routes through it there too, so iOS is an inference from the shared stack rather
+than a device-verified result).
+
+There is no plaintext, only keys: the socket file descriptor cannot be recovered
+from an `SSL_read`/`SSL_write` on Apple platforms, so friTap installs no
+plaintext hooks. Pair `-k keys.log` with a separately captured pcap in Wireshark.
+
+Only Apple's legacy **Secure Transport / `libcoretls`** has no hooks at all.
+
+!!! warning "This does not generalise to other libraries on iOS"
+    macOS registers 12 hook patterns; **iOS registers only three, all
+    BoringSSL-family**. On iOS an app bundling its own OpenSSL, LibreSSL, NSS,
+    GnuTLS, wolfSSL, mbedTLS, rustls or Go TLS is unhooked, and **all QUIC and
+    all SSH** are unhooked. The library-scan fallback cannot cover the gap — it
+    only resolves library types present in that platform's registry.
 
 ## Commercial and Proprietary Libraries
 
@@ -266,7 +288,7 @@ MatrixSSL is a commercial SSL/TLS implementation often used in embedded and ente
 sudo fritap --patterns matrixssl_patterns.json -k keys.log commercial_app
 
 # Debug detection
-sudo fritap -do -v commercial_app | grep -i matrix
+sudo fritap -do -v commercial_app 2>&1 | grep -i matrix
 ```
 
 ### Cryptlib
@@ -314,7 +336,7 @@ python BoringSecretHunter.py --target custom_ssl.so --output custom_patterns.jso
 fritap --patterns custom_patterns.json -k keys.log custom_app
 
 # Manual analysis
-fritap -do -v custom_app | grep -E "(ssl|tls|encrypt|decrypt)"
+fritap -do -v custom_app 2>&1 | grep -E "(ssl|tls|encrypt|decrypt)"
 ```
 
 #### Reverse Engineering Custom Libraries
@@ -348,7 +370,7 @@ sudo fritap -k java_keys.log --json java_metadata.json java -jar application.jar
 fritap -m -k jsse_keys.log com.java.android.app
 
 # Debug Java SSL detection
-sudo fritap -do -v java_app | grep -i java
+sudo fritap -do -v java_app 2>&1 | grep -i java
 ```
 
 ### .NET SSL Classes
@@ -411,7 +433,7 @@ Combine multiple detection methods:
 fritap --patterns primary.json --offsets fallback.json -k keys.log target
 
 # Custom Frida script for complex detection
-fritap --custom-script detection.js -k keys.log target
+fritap --custom_script detection.js -k keys.log target
 ```
 
 ## Troubleshooting Other Libraries
@@ -423,7 +445,7 @@ fritap --custom-script detection.js -k keys.log target
 ldd target_application | grep -E "(ssl|tls|crypto)"
 
 # Analyze loaded modules
-fritap --list-libraries target | grep -i ssl
+fritap --list-libraries target 2>&1 | grep -i ssl
 
 # Use debug mode
 fritap -do -v target 2>&1 | grep -i "library\|module\|detect"

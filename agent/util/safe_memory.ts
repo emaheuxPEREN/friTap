@@ -66,6 +66,26 @@ export function isReadable(ptr: NativePointer, size = 1): boolean {
     }
 }
 
+/**
+ * True if [ptr, ptr+size) lies entirely within a single mapped range that is
+ * both readable AND writable. Unlike isReadable this is uncached: write targets
+ * are validated rarely (once per struct install, not per struct walk), and a
+ * stale "writable" verdict is far more dangerous than a stale readable one.
+ * Never throws.
+ */
+export function isWritable(ptr: NativePointer, size = 1): boolean {
+    if (ptr === null || ptr.isNull()) return false;
+    try {
+        const a = untag(ptr);
+        const range = Process.findRangeByAddress(a);
+        if (!range) return false;
+        if (range.protection[0] !== "r" || range.protection[1] !== "w") return false;
+        return a.add(size).compare(range.base.add(range.size)) <= 0;
+    } catch (e) {
+        return false;
+    }
+}
+
 /** readPointer() guarded by isReadable; null if the address is unreadable. */
 export function safeReadPointer(ptr: NativePointer): NativePointer | null {
     if (!isReadable(ptr, Process.pointerSize)) return null;

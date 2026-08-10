@@ -8,11 +8,62 @@
  import { ModuleHookingType, Platform, LibraryType } from "./shared_structures";
  import { contributedImplications } from "./hook_contributors.js";
  import { matchNonTLSLibrary } from "../util/non_tls_libs.js";
+ import { devlog } from "../util/log.js";
+
+ /**
+  * Report a registry exclusion at most once per distinct message.
+  *
+  * `_isExcluded` runs inside `hookDynamicLoader`'s `onLeave` — on the target's
+  * own thread, inside `dlopen`/`LoadLibraryExW` — and `devlog()` ALWAYS `send()`s
+  * to the host (only the Python side decides whether to print). An *excluded*
+  * module is never passed to `markModuleHooked`, so the usual `isModuleHooked`
+  * short-circuit never applies: an app that repeatedly `dlopen`s a denylisted
+  * library would post one IPC message per load from inside the loader hook.
+  * The message text already encodes module + hook + reason, so it is its own key.
+  */
+ const reportedExclusions = new Set<string>();
+
+ function devlogExclusionOnce(message: string): void {
+     if (reportedExclusions.has(message)) return;
+     reportedExclusions.add(message);
+     devlog(message);
+ }
 
  // ---------------------------------------------------------------------------
  // Types
  // ---------------------------------------------------------------------------
  
+ /**
+  * A predicate over a module's filesystem path.
+  *
+  * A `string` is a case-INSENSITIVE plain substring of the path — the historical
+  * semantics, kept because "python" must match `Python.framework` and
+  * `C:\Python312\DLLs` alike (see the note in {@link HookRegistry._isExcluded}).
+  * A `RegExp` is tested against the RAW path, so the author adds `/i` when they
+  * want case-insensitivity; use it when a substring is too loose, e.g. to anchor
+  * `/^\/usr\/lib\//` so a vendored `.../Frameworks/usr/lib/` sysroot is not
+  * mistaken for the real one.
+  *
+  * A `RegExp` used here MUST NOT carry the `/g` or `/y` flag: those make
+  * `RegExp.prototype.test` stateful via `lastIndex`, and these predicates are
+  * deliberately shared across several registrations so that one entry's filter
+  * is provably the complement of another's (see
+  * `agent/shared/darwin_library_patterns.ts`).
+  */
+ export type PathFilter = string | RegExp;
+
+ /**
+  * Test a single {@link PathFilter} against a module path.
+  *
+  * Shared by the positive (`pathFilter`) and negative (`excludePathFilter`)
+  * filters so the two can never disagree about what "matches" means.
+  */
+ function pathMatches(modulePath: string, filter: PathFilter): boolean {
+     return typeof filter === "string"
+         ? modulePath.toLowerCase().includes(filter.toLowerCase())
+         : filter.test(modulePath);
+ }
+
  export interface HookRegistration {
      /** Target platform: "linux", "darwin", "windows", "wine" */
      platform: Platform;
@@ -26,8 +77,27 @@
      library: string;
      /** Higher priority = tried first (default 100) */
      priority: number;
-     /** Optional path substring filter for extra specificity */
-     pathFilter?: string;
+     /**
+      * Positive path requirement for extra specificity: the hook installs only
+      * when the module path satisfies this filter.
+      *
+      * FAILS CLOSED — when no module path is available the hook is skipped, on
+      * the grounds that a requirement which cannot be verified is unmet.
+      */
+     pathFilter?: PathFilter;
+     /**
+      * Negative path requirement: the hook is skipped when ANY of these filters
+      * matches the module path. Same string/RegExp semantics as
+      * {@link pathFilter}.
+      *
+      * FAILS OPEN — when no module path is available the hook is NOT skipped,
+      * because an exclusion that cannot be evaluated must not exclude. That
+      * asymmetry with `pathFilter` is deliberate and load-bearing: it is what
+      * lets a complementary pair of entries (one `pathFilter: X`, one
+      * `excludePathFilter: X`) still resolve to exactly one hook when the path
+      * is unknown, instead of both dropping out and leaving the module unhooked.
+      */
+     excludePathFilter?: PathFilter | PathFilter[];
      /** Regex pattern to exclude modules that match the main pattern */
      excludePattern?: RegExp;
      /**
@@ -283,7 +353,14 @@ function protocolMatches(hookProtocol: string, requested: string): boolean {
      }
  
      /**
-      * Check whether a matched hook should be skipped due to excludePattern or pathFilter.
+      * Check whether a matched hook should be skipped.
+      *
+      * Four independent gates, evaluated as a FALL-THROUGH chain: the non-TLS
+      * denylist, `excludePattern` (name), `excludePathFilter` (path, negative),
+      * and `pathFilter` (path, positive). Every gate that applies is evaluated.
+      * Do NOT reintroduce an early `return false` for a gate that passes — an
+      * earlier version ended the `pathFilter` branch with `return excluded`,
+      * which silently made any gate below it dead code for hooks carrying both.
       */
      private _isExcluded(hook: HookRegistration, moduleName: string, modulePath?: string): boolean {
          // Known non-TLS libraries (OS-aware) are never hooked, regardless of
@@ -291,16 +368,50 @@ function protocolMatches(hookProtocol: string, requested: string): boolean {
          // own (memoized) detection — the registry `platform` is "linux" for
          // both Android and desktop Linux and so cannot scope correctly here.
          if (matchNonTLSLibrary(moduleName)) {
+             devlogExclusionOnce(`registry: skipping ${moduleName} for "${hook.library}" — known non-TLS library (denylist)`);
              return true;
          }
          if (hook.excludePattern && hook.excludePattern.test(moduleName)) {
+             devlogExclusionOnce(`registry: skipping ${moduleName} for "${hook.library}" — excludePattern ${hook.excludePattern} matched the module name`);
              return true;
          }
-         if (hook.pathFilter && modulePath) {
-             return !modulePath.includes(hook.pathFilter);
+         // Negative path filter. FAILS OPEN: an exclusion we cannot evaluate must
+         // not exclude. See the field docs on `excludePathFilter` for why that
+         // asymmetry with `pathFilter` below is what keeps a complementary pair of
+         // entries resolving to exactly one hook when the path is unknown.
+         if (hook.excludePathFilter) {
+             if (modulePath) {
+                 const filters = Array.isArray(hook.excludePathFilter)
+                     ? hook.excludePathFilter : [hook.excludePathFilter];
+                 for (const filter of filters) {
+                     if (pathMatches(modulePath, filter)) {
+                         devlogExclusionOnce(`registry: skipping ${moduleName} for "${hook.library}" — excludePathFilter ${filter} matched the path ${modulePath}`);
+                         return true;
+                     }
+                 }
+             } else {
+                 devlogExclusionOnce(`registry: ${moduleName} for "${hook.library}" — excludePathFilter set but no module path available (fails open, not excluded)`);
+             }
          }
-         if (hook.pathFilter && !modulePath) {
-             return true;
+         // Positive path filter. FAILS CLOSED: a requirement we cannot verify is
+         // treated as unmet.
+         //
+         // The string form is case-INSENSITIVE on purpose — do not "tidy" it back
+         // to a plain `includes()`. Apple capitalises the framework directory
+         // (/Library/Frameworks/Python.framework/Versions/3.13/lib/libssl.3.dylib)
+         // and Windows capitalises the install directory
+         // (C:\Python312\DLLs\libssl-3.dll), so a case-sensitive match on the
+         // "python" pathFilter silently dropped every framework/installer
+         // Python's TLS: the hook never installed and nothing was logged.
+         if (hook.pathFilter) {
+             if (!modulePath) {
+                 devlogExclusionOnce(`registry: skipping ${moduleName} for "${hook.library}" — pathFilter ${hook.pathFilter} set but no module path available (fails closed)`);
+                 return true;
+             }
+             if (!pathMatches(modulePath, hook.pathFilter)) {
+                 devlogExclusionOnce(`registry: skipping ${moduleName} for "${hook.library}" — pathFilter ${hook.pathFilter} not found in path ${modulePath}`);
+                 return true;
+             }
          }
          return false;
      }

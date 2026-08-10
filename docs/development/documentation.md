@@ -592,7 +592,7 @@ For Android development, install the [Android SDK](https://developer.android.com
     
     - friTap 2.0.0+
     - Frida 17.x
-    - Python 3.7+
+    - Python 3.10+
     
     For older versions, see [Legacy Documentation](legacy.md).
 ```
@@ -600,15 +600,15 @@ For Android development, install the [Android SDK](https://developer.android.com
 #### Deprecation Notices
 ```markdown
 !!! warning "Deprecated Feature"
-    The `--legacy-mode` option is deprecated as of friTap 1.4.0 and will be removed in 2.0.0.
+    The `--old-option` option is deprecated as of friTap 1.4.0 and will be removed in 2.0.0.
     
-    **Migration**: Use `--compatibility-mode` instead:
+    **Migration**: Use `--new-option` instead:
     ```bash
     # Old (deprecated)
-    fritap --legacy-mode target_app
+    fritap --old-option target_app
     
     # New
-    fritap --compatibility-mode target_app
+    fritap --new-option target_app
     ```
 ```
 

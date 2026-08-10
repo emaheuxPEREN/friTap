@@ -481,11 +481,11 @@ fritap -c custom_script.js target
 
 Analyze multiple devices simultaneously:
 ```bash
-# Device 1
-fritap -m -D device1 com.example.app
+# Device 1 — pass the device id to -m/--mobile
+fritap -m device1 com.example.app
 
 # Device 2
-fritap -m -D device2 com.example.app
+fritap -m device2 com.example.app
 ```
 
 ### Live Analysis Integration

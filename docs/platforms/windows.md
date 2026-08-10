@@ -8,7 +8,7 @@ This guide covers Windows-specific setup, considerations, and best practices for
 
 - **Windows 10 or Windows 11** (64-bit recommended)
 - **Administrator privileges** (required for most analysis)
-- **Python 3.8+** installed
+- **Python 3.10+** installed (`setup.py` sets `python_requires=">=3.10"`)
 - **Visual Studio Build Tools** (for some dependencies)
 - **Windows Subsystem for Linux (WSL)** (optional but recommended)
 

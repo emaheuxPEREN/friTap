@@ -8,10 +8,12 @@ from .backends import (
     BackendTransportError,
     BackendTimedOutError,
     BackendProcessNotFoundError,
+    BackendProcessNotRespondingError,
     BackendPermissionDeniedError,
     BackendNotRunningError,
     BackendInvalidArgumentError,
     BackendInvalidOperationError,
+    BackendScriptLoadTimeout,
 )
 import logging
 import time
@@ -35,6 +37,7 @@ from .about import __version__
 from .about import __author__
 from .ssl_logger import SSL_Logger
 from .config import FriTapConfig, UnsupportedProtocolBackendError
+from .inspector import LibraryInspector
 from .backends.base import BackendName
 from .fritap_utility import get_pid_of_lsass, are_we_running_on_windows, setup_fritap_logging, Success, Failure, FriTapExit
 
@@ -240,7 +243,194 @@ def write_debug_frida_file(debug_script_version):
 
 
 
+def _format_seconds(seconds):
+    """Render a duration without rounding a sub-second value away to "0.0s".
+
+    A bound of "0.0s" would read as *disabled* (which is what 0 means for
+    --script-load-timeout), so a diagnostic must never print it for a bound
+    that actually fired.
+    """
+    return f"{seconds:.3f}s" if 0 < seconds < 1 else f"{seconds:.1f}s"
+
+
+def _script_load_timeout_hints(elapsed_seconds, breadcrumb, timeout):
+    """Return the user-facing message lines for a script-load timeout.
+
+    Pure so the wording stays testable: the caller only logs the lines.
+    ``breadcrumb`` is the agent's last reported stage (may be empty) and it is
+    the single most useful signal about *where* the load wedged.
+    """
+    # The bound is optional: effective_script_load_timeout() returns None when
+    # the user disabled it, and the breadcrumb may not have arrived at all.
+    bound = f" (bound: {_format_seconds(timeout)})" if timeout else ""
+    breadcrumb = breadcrumb or ""
+    lines = [
+        f"Agent did not finish loading within {_format_seconds(elapsed_seconds)}{bound}.",
+    ]
+    # Match the breadcrumb verdicts used by SSL_Logger's crash reporting so
+    # both places tell the user the same story about the same marker.
+    if breadcrumb.startswith("agent-init"):
+        lines.append(
+            f"  The agent died before any hook was installed "
+            f"(last agent stage: {breadcrumb})."
+        )
+    elif breadcrumb.startswith("install-phase"):
+        lines.append(
+            f"  The agent died while installing hooks "
+            f"(last agent stage: {breadcrumb})."
+        )
+    elif breadcrumb:
+        lines.append(f"  Last agent stage: {breadcrumb}.")
+    else:
+        lines.append("  The agent never reported a startup stage.")
+    lines.append(
+        "  -> Rebuild the agent bundle with ./dev/compile_agent.sh — a stale or "
+        "partially-built bundle is a common cause."
+    )
+    lines.append(
+        "  -> Re-run with --probe (if available) to isolate the failing agent stage."
+    )
+    lines.append(
+        "  -> Raise the bound with --script-load-timeout <seconds>, or pass "
+        "--script-load-timeout 0 to disable it."
+    )
+    return lines
+
+
+def _process_not_responding_hints(message, spawn):
+    """Return the user-facing message lines for a not-responding target.
+
+    Pure so the wording stays testable: the caller only logs the lines.
+    """
+    lines = [f"Target process is not responding: {message}"]
+    lines.append(
+        "  The target did not complete the agent-injection handshake in time."
+    )
+    if spawn:
+        lines.append(
+            "  -> Spawn-time injection stalls on targets that do heavy work (or "
+            "an integrity check) at startup. Start the app yourself, then ATTACH "
+            "friTap (run WITHOUT -s)."
+        )
+    else:
+        lines.append(
+            "  -> The process may be suspended, stopped in a debugger, or wedged "
+            "in a syscall. Verify it is running and responsive, then retry."
+        )
+    lines.append(
+        "  -> Also confirm the backend server version matches the friTap client."
+    )
+    return lines
+
+
+# Capture-output flags that produce nothing in probe mode, paired with the
+# spelling the user typed so the warning quotes their own command line back.
+_PROBE_IGNORED_CAPTURE_FLAGS = (
+    ("keylog", "-k/--keylog"),
+    ("pcap", "-p/--pcap"),
+    ("full_capture", "-f/--full_capture"),
+    ("live", "--live"),
+    ("json", "-j/--json"),
+)
+
+
+def _probe_conflict_warnings(parsed):
+    """Return the warning lines for capture flags that do nothing under --probe.
+
+    Pure so the wording stays testable: the caller only logs the lines.
+
+    Warn, never error: --probe is meant to be added to the exact command line
+    the user is already debugging, so rejecting that command line would defeat
+    the purpose. The agent installs no hooks in probe mode, though, so every
+    output flag would only create an empty file — say so once, up front.
+    """
+    if not getattr(parsed, "probe", False):
+        return []
+    ignored = [
+        label for attr, label in _PROBE_IGNORED_CAPTURE_FLAGS
+        if getattr(parsed, attr, None)
+    ]
+    if not ignored:
+        return []
+    return [
+        "--probe is a dry run: friTap installs no hooks, so these flags produce "
+        "no data and are ignored: " + ", ".join(ignored) + ".",
+        "  -> Re-run the same command without --probe once the probe report looks healthy.",
+    ]
+
+
+def _make_inspection_config(parsed):
+    """Build the FriTapConfig the library-inspection commands run against.
+
+    Only the flags that influence *finding* the target and its modules matter
+    here -- no output/capture flags -- because ``-ll`` and
+    ``--extract-libraries`` never start a capture session.
+    """
+    return FriTapConfig.from_legacy_params(
+        app=parsed.exec, verbose=parsed.verbose, spawn=parsed.spawn,
+        mobile=parsed.mobile, environment_file=parsed.environment,
+        debug_mode=parsed.debug, host=parsed.host, offsets=parsed.offsets,
+        debug_output=parsed.debug_output, experimental=parsed.experimental,
+        anti_root=parsed.anti_root, enable_default_fd=parsed.enable_default_fd,
+        patterns=parsed.patterns, custom_hook_script=parsed.custom_script,
+        backend=parsed.backend,
+    )
+
+
+def _run_early_exit_command(label, action_fn, logger, special_logger):
+    """Run a "print something and exit" command, then leave ``cli()`` for good.
+
+    Lives at module scope on purpose. It used to be a nested helper inside
+    :func:`cli`, where its success path was a bare ``return`` -- which returned
+    from the *helper*, not from ``cli()``. ``fritap -ll <target>`` therefore
+    printed its library listing and then fell straight through into a full
+    capture session that blocks forever in ``wait_for_completion()``, despite
+    the flag's promise not to start logging.
+
+    Every path out of this function raises a :class:`FriTapExit` (``Success``
+    on a clean listing, ``Failure`` otherwise). It must never ``return``.
+    """
+    logger.info(label)
+    try:
+        result = action_fn()
+    except FriTapExit:
+        # A controlled exit is not an error -- let it through untouched rather
+        # than have `except Exception` below rewrite it as "An error occurred".
+        raise
+    except BackendTransportError as fe:
+        logger.error(f"Backend transport error: {fe}")
+    except FridaBasedException as e:
+        logger.error(f"Backend error: {e}")
+    except Exception as e:
+        logger.error(f"An error occurred: {e}")
+    else:
+        # Everything below MUST stay in the else: clause. Success/Failure
+        # subclass Exception, so raising them inside the try: body would be
+        # swallowed by our own `except Exception` above and re-reported as
+        # "An error occurred: ".
+        special_logger.info(result)
+        # The inspectors report failure in their return value rather than by
+        # raising, so a scan that failed still has to exit non-zero.
+        if LibraryInspector.is_error(result):
+            raise Failure
+        # Keyword, not positional: FriTapExit.__init__(self, info=None,
+        # logger=None, ...) takes *info* first, so raise Success(special_logger)
+        # would print the Logger's repr instead of the goodbye banner.
+        raise Success(logger=special_logger)
+    # Only reached after one of the except clauses above logged the cause.
+    raise Failure
+
+
 class ArgParser(argparse.ArgumentParser):
+    """Argument parser that prints the full help on a usage error.
+
+    The help text stays on stdout (a lot of tooling greps it), but the exit
+    code is 2 -- the value documented in docs/api/cli.md for "invalid
+    arguments/configuration" -- so wrapper scripts and CI jobs can actually
+    detect a bad command line. ``fritap --help`` is served by the explicit
+    ``-h/--help`` action registered in :func:`cli`, not by this method.
+    """
+
     def error(self, message):
         print("friTap v" + __version__)
         print("by " + __author__)
@@ -248,7 +438,7 @@ class ArgParser(argparse.ArgumentParser):
         print("Error: " + message)
         print()
         print(self.format_help().replace("usage:", "Usage:"))
-        self.exit(0)
+        self.exit(2)
 
 def cli():
     # Initial setup - will be reconfigured after parsing arguments
@@ -357,6 +547,12 @@ Offline (read / analyze .tap):
     args.add_argument("--list-analyzers", required=False, action="store_true", default=False,
                       help="List available analyzers (built-in + discovered externals) and exit.")
     args.add_argument('--version', action='version',version='friTap v{version}'.format(version=__version__))
+    # The parser is built with add_help=False, so the help action has to be
+    # registered explicitly. Without it, `fritap --help` would only "work" as a
+    # side effect of error() printing the help text -- and error() must exit 2
+    # so that wrappers and CI can detect a bad command line.
+    args.add_argument("-h", "--help", action="help",
+                      help="Show this help message and exit.")
     args.add_argument("--enable_spawn_gating", required=False, action="store_const", const=True,
                       help="Catch newly spawned processes matching the target app (useful for Android multi-process apps)")
     args.add_argument("--spawn_gating_all", required=False, action="store_const", const=True,
@@ -378,8 +574,11 @@ Offline (read / analyze .tap):
     args.add_argument("--modern", required=False, action="store_const", const=True, default=False,
                       dest="use_modern",
                       help="EXPERIMENTAL: opt into the modern (refactored) friTap agent code path. "
-                           "Unlocks the three-tier BoringSSL keylog chain and improved Cronet hooks "
-                           "on Android/Windows. Known regressions vs the legacy default: "
+                           "Unlocks the three-tier BoringSSL keylog chain (callback / "
+                           "ssl_log_secret symbol / byte pattern) on every platform, and improved "
+                           "Cronet hooks on Android/Windows. On Apple the callback tier resolves "
+                           "SSL_CTX_set_keylog_callback from the symbol table, since Apple does not "
+                           "export it. Known regressions vs the legacy default: "
                            f"{_MODERN_REGRESSIONS}. Default: legacy.")
     args.add_argument("--quic-capture-mode", required=False,
                       choices=["stream", "app-api"], default="stream",
@@ -454,6 +653,15 @@ Offline (read / analyze .tap):
                            "deferred past PairIP's startup window, so the earliest handshakes may be "
                            "missed — attach is the proven path). Trigger fresh TLS handshakes after "
                            "attach (e.g. toggle wifi). See docs/advanced/pairip-safe.md.")
+    args.add_argument("--probe", required=False, action="store_const",
+                      const=True, default=False, dest="probe",
+                      help="Dry run. Load the friTap agent, report which platform friTap "
+                           "detected and which platform code path it selected, then exit "
+                           "without installing any TLS hooks. Use it to diagnose targets "
+                           "that die during instrumentation (fkie-cad/friTap#65): if the "
+                           "target survives --probe, the agent loaded fine and the crash "
+                           "is in hook installation. No keys, pcap or plaintext are "
+                           "produced in probe mode.")
     args.add_argument("--owner-capture", "-oc", required=False, action="store_const",
                       const=True, default=False, dest="owner_capture",
                       help="Android/Linux: scope the full packet capture (-f) to ONLY the target "
@@ -525,6 +733,16 @@ Offline (read / analyze .tap):
                       default=False, dest="include_loopback",
                       help="Include loopback/localhost traffic (e.g. Firefox internal NSS IPC). "
                            "By default loopback traffic is filtered out to reduce noise.")
+    args.add_argument("--script-load-timeout", metavar="<seconds>", type=float,
+                      required=False, default=20.0, dest="script_load_timeout",
+                      help="Upper bound in seconds for loading the friTap agent into the "
+                           "target (Frida's script.load(), which blocks until the agent "
+                           "finished its startup). Exceeding it aborts with a diagnostic "
+                           "instead of hanging forever. Use 0 to disable the bound. The "
+                           "value is automatically tripled when a pattern scan (--patterns), "
+                           "a library scan (--library-scan) or a key-region "
+                           "scan (--scan-keys-region) is requested, since those scan inside "
+                           "the agent's startup.")
     parsed = parser.parse_args()
 
     # The target positional now captures one-or-more tokens (nargs="+") so a
@@ -558,6 +776,35 @@ Offline (read / analyze .tap):
         else:
             logger.warning("Failed to initialise friTap debug log file")
 
+    # Handled before the LSASS block below: these flags promise not to start
+    # logging, so `fritap -ll app.exe` on Windows must not install a full LSASS
+    # instrumentation session just to print a library listing.
+    #
+    # The SSL_Logger is built inside the lambda so that a config or
+    # protocol-registry error becomes the helper's "An error occurred" + exit 2
+    # path instead of a raw traceback -- and so neither `config` nor `ssl_log`
+    # leaks into this function's locals(), which the capture path's error
+    # handlers below inspect for an `ssl_log` to clean up.
+    # The label doubles as the only progress feedback the user gets: tlsLibHunter
+    # pattern-scans every candidate module and emits nothing until it is done.
+    # That is ~1-2s on macOS now, but stays proportional to module count and
+    # pattern set (--scan-all-modules, or a few hundred modules on Android), so
+    # say a scan is running rather than leaving a silent terminal that looks like
+    # the hang this command used to have.
+    if parsed.list_libraries:
+        _run_early_exit_command(
+            "Listing loaded libraries (scanning loaded modules for TLS patterns)...",
+            lambda: SSL_Logger(config=_make_inspection_config(parsed)).inspect_libraries(),
+            logger, special_logger)
+
+    if parsed.extract_libraries:
+        _run_early_exit_command(
+            f"Extracting TLS libraries to {parsed.extract_libraries} "
+            "(scanning loaded modules for TLS patterns)...",
+            lambda: SSL_Logger(config=_make_inspection_config(parsed)).extract_libraries(
+                parsed.extract_libraries),
+            logger, special_logger)
+
     if are_we_running_on_windows() and not parsed.mobile:
         if parsed.no_lsass:
             logger.info("LSASS hooking is disabled. Proceeding without LSASS.")
@@ -567,46 +814,6 @@ Offline (read / analyze .tap):
             atexit.register(cleanup_lsass_hook)
 
     install_lsass_hook = False
-    
-    def _make_inspection_config(parsed):
-        return FriTapConfig.from_legacy_params(
-            app=parsed.exec, verbose=parsed.verbose, spawn=parsed.spawn,
-            mobile=parsed.mobile, environment_file=parsed.environment,
-            debug_mode=parsed.debug, host=parsed.host, offsets=parsed.offsets,
-            debug_output=parsed.debug_output, experimental=parsed.experimental,
-            anti_root=parsed.anti_root, enable_default_fd=parsed.enable_default_fd,
-            patterns=parsed.patterns, custom_hook_script=parsed.custom_script,
-            backend=parsed.backend,
-        )
-
-    def _run_early_exit_command(label, action_fn, logger, special_logger):
-        logger.info(label)
-        try:
-            result = action_fn()
-            special_logger.info(result)
-        except BackendTransportError as fe:
-            logger.error(f"Backend transport error: {fe}")
-        except FridaBasedException as e:
-            logger.error(f"Backend error: {e}")
-        except Exception as e:
-            logger.error(f"An error occurred: {e}")
-        else:
-            return
-        raise Failure
-
-    if parsed.list_libraries:
-        config = _make_inspection_config(parsed)
-        ssl_log = SSL_Logger(config=config)
-        _run_early_exit_command("Listing loaded libraries...",
-            ssl_log.inspect_libraries, logger, special_logger)
-
-    if parsed.extract_libraries:
-        config = _make_inspection_config(parsed)
-        ssl_log = SSL_Logger(config=config)
-        _run_early_exit_command(
-            f"Extracting TLS libraries to {parsed.extract_libraries} ...",
-            lambda: ssl_log.extract_libraries(parsed.extract_libraries),
-            logger, special_logger)
 
     # --protocol all: install every protocol's hooks, but make the user confirm.
     # auto is the script-friendly alias (same hooks, no prompt) for unattended runs.
@@ -616,7 +823,6 @@ Offline (read / analyze .tap):
                 "--protocol all requires interactive confirmation. Pass -y/--yes "
                 "to skip the prompt, or use --protocol auto for the same effect."
             )
-            raise Failure
         sys.stderr.write(
             "--protocol all will hook TLS, QUIC, OHTTP, SSH, and IPsec libraries\n"
             "simultaneously. This may slow the target process, increase capture\n"
@@ -678,9 +884,14 @@ Offline (read / analyze .tap):
             f"{_MODERN_REGRESSIONS}. Omit --modern to use the stable legacy path."
         )
 
+    # Surfaced before the output-flag validations below so the user learns that
+    # probe mode ignores those flags at all, rather than being sent to fix a
+    # combination that would have been ignored anyway.
+    for line in _probe_conflict_warnings(parsed):
+        logger.warning(line)
+
     if parsed.full_capture and parsed.pcap is None:
         parser.error("--full_capture requires -p to set the pcap name")
-        raise Failure
 
     if parsed.full_capture and parsed.keylog is None:
         logger.warning("Are you sure you want to proceed without recording the key material (-k <keys.log>)?")
@@ -778,6 +989,7 @@ Offline (read / analyze .tap):
             json_output=parsed.json,
             install_lsass_hook=install_lsass_hook,
             timeout=parsed.timeout,
+            script_load_timeout=parsed.script_load_timeout,
             backend=parsed.backend,
             protocol=parsed.protocol,
             proxy=parsed.proxy,
@@ -790,6 +1002,7 @@ Offline (read / analyze .tap):
             no_loader_hook=getattr(parsed, 'no_loader_hook', False),
             stealth_loader=getattr(parsed, 'stealth_loader', False),
             pairip_safe=getattr(parsed, 'pairip_safe', False),
+            probe=parsed.probe,
             quic_egress_headers_layer=getattr(parsed, 'quic_egress_headers_layer', 'auto'),
             scan_keys_region=getattr(parsed, 'scan_keys_region', None),
             scan=getattr(parsed, 'scan', None),
@@ -848,6 +1061,20 @@ Offline (read / analyze .tap):
                 hint += f" (last hook entered: {crumb})"
             hint += " — it may have crashed inside an instrumented hook. Check the debug log."
             logger.error(hint)
+    except BackendScriptLoadTimeout as se:
+        # The agent's breadcrumb lives on SSL_Logger; prefer the one the
+        # exception already carries (set by whoever raised it with context).
+        _ssl_log = locals().get("ssl_log")
+        crumb = se.breadcrumb or getattr(_ssl_log, "_last_hook_breadcrumb", "")
+        # se.bound_seconds is the EFFECTIVE bound (tripled for scan-heavy runs);
+        # parsed.script_load_timeout is only what the user typed, so it would
+        # under-report for --patterns / --library-scan / --scan-keys-region.
+        bound = se.bound_seconds or parsed.script_load_timeout
+        for line in _script_load_timeout_hints(se.elapsed_seconds, crumb, bound):
+            logger.error(line)
+    except BackendProcessNotRespondingError as pe:
+        for line in _process_not_responding_hints(str(pe), parsed.spawn):
+            logger.error(line)
     except FridaBasedException as e:
         logger.error(f"Backend error: {e}")
     except BackendTimedOutError as te:
@@ -895,10 +1122,10 @@ Offline (read / analyze .tap):
             logger.error(f"Unknown error: {ex_value}")
 
         if "unable to access process with pid" in str(ex_value).lower():
-            raise Success(special_logger)
+            raise Success(logger=special_logger)
         if "not yet supported on this os" in str(ex_value).lower():
             logger.error("This feature is currently not supported on this OS.")
-            raise Success(special_logger)
+            raise Success(logger=special_logger)
 
         return
 

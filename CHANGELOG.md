@@ -4,6 +4,86 @@ All notable changes to friTap will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+  - **`--probe` (dry run).** Loads the agent, reports which platform branch it
+    selected, and stops **before installing any hooks** — for diagnosing targets
+    that die during instrumentation (fkie-cad/friTap#65). If the loaded bundle
+    does not acknowledge probe mode, friTap exits non-zero and says so rather
+    than silently doing a normal instrumented run.
+  - **`--script-load-timeout` (default 20 s, `0` disables).** Bounds the agent's
+    `script.load()`, which previously could hang forever waiting for a startup
+    handshake. Automatically tripled when a pattern or memory-region scan is
+    requested, since those legitimately take longer.
+  - **iOS crash reporting.** Crash reports are pulled via `idevicecrashreport`
+    and decoded (`0x8badf00d` watchdog, jetsam, `EXC_BAD_ACCESS`,
+    `0xdead10cc`, codesigning), mirroring the existing Android tombstone/logcat
+    enrichment. Crash reporting is now also registered in **attach** mode.
+  - **`dev/macos_verify/`** — device-free end-to-end verification of the Apple
+    capture path on macOS, usable as a stand-in for a jailbroken iOS device.
+
+### Changed
+  - **Agent ABI 1 → 2** (`probe` config field + the `platform_report` content
+    type). The bundle's ABI is now also checked **statically, before load**, so
+    a stale `friTap/fritap_agent.js` is reported before it touches the target.
+    An ABI-mismatched agent bundle contributed via the `fritap.agent_bundle`
+    entry point is now reported with a **warning** instead of being skipped
+    silently.
+
+    > **Private/extended bundles move in lockstep with this number.** Any
+    > package contributing a `fritap.agent_bundle` entry point must ship a build
+    > declaring `AGENT_ABI_VERSION = 2`, or friTap will skip it and fall back to
+    > the bundled agent. Bumping the constant requires re-running
+    > `python dev/generate_agent_types.py` **and** `./dev/compile_agent.sh`, and
+    > committing the regenerated bundle — `tests/unit/test_agent_bundle_abi_static.py`
+    > fails otherwise.
+
+### Fixed
+  - **macOS: genuine OpenSSL outside `/usr/lib` is hooked at all.** A versioned
+    `libssl.<n>.dylib` from Homebrew, pyenv, MacPorts or conda matched **no**
+    registry entry — the LibreSSL entry required `/usr/lib`, the "Python OpenSSL"
+    entry required `python` in the path (a Homebrew path has no such component),
+    and the generic entry excluded the versioned name by name. friTap attached,
+    installed nothing and logged nothing. The three `libssl*.dylib` entries are
+    now a strict partition and versioned names route to the genuine-OpenSSL
+    executor rather than the Apple BoringSSL one.
+  - **macOS: a vendored `usr/lib` sysroot is no longer mistaken for the system
+    one.** The LibreSSL entry's path filter was the plain substring `/usr/lib/`,
+    so `.../MyApp.app/Contents/Frameworks/usr/lib/libssl.3.dylib` was routed to
+    the priority-150 system-LibreSSL hook. It is now anchored.
+  - **`libssl.1.1.dylib` is no longer hooked twice.** The generic entry's
+    `excludePattern` was `/^libssl\.\d+\.dylib$/`, which cannot match `1.1`, so
+    Homebrew `openssl@1.1` and Python 3.9-era framework builds matched both the
+    Python and generic entries — and since the loader invokes every match, both
+    executors installed, the second writing an Apple BoringSSL struct offset into
+    a genuine OpenSSL `SSL_CTX`. The same class of overlap is fixed on Linux
+    (`libssl.so.3` under a python path) and Windows (`C:\Python312\DLLs\libssl-3.dll`).
+  - **iOS: `libssl`/LibreSSL are registered.** `ios.ts` had no entry for either,
+    so iOS's own shared-cache LibreSSL and any app-bundled OpenSSL went entirely
+    unhooked. Routing is unit-tested; the executors themselves are not yet
+    validated on a device.
+  - **`-ll` / `--extract-libraries` exit instead of starting a capture.** Both
+    promise "will not start the logging process", but printed their result and
+    then fell through into a full capture session that blocked in
+    `wait_for_completion()` until the user hit Ctrl+C. The early-exit helper had
+    been hoisted into a nested function, so its `return` returned from the helper
+    rather than from `cli()`. Both now exit `0` on success and `2` when the
+    inspection fails — previously a failed inspection also exited `0`, because the
+    error was reported in the return value and never inspected.
+  - **The startup handshake is answered per script.** Only the first script in a
+    session used to be answered, so every additional one (`--enable_child_gating`,
+    `--enable_spawn_gating`) blocked forever in `script.load()`.
+  - **Gated child/spawn instrumentation no longer runs on Frida's event thread**
+    or on the message-queue consumer thread, and the gated process is now
+    resumed in a `finally` — a failed instrumentation used to leave it suspended
+    until the platform watchdog killed it (reported as the app's own crash).
+  - **A spawned target is resumed when instrumentation fails**, instead of being
+    left suspended, with an explicit warning that it is running uninstrumented.
+  - **Frida error diagnostics no longer claim `server_reachable=False`** for
+    errors raised from script-first backend calls, where the first argument is a
+    script rather than a device.
+
 ## [2.2.4]
 
 ### Added

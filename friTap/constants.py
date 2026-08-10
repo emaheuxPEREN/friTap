@@ -59,7 +59,11 @@ PROTOCOL_TELEGRAM_E2E = "Telegram-E2E"
 # the loaded bundle can report its own ABI back (rpc agentAbiVersion); the host
 # warns on mismatch and uses it to ABI-filter discoverable agent bundles
 # (the ``fritap.agent_bundle`` entry-point group). Generic — names no protocol.
-AGENT_ABI_VERSION = 1
+# 2: added the ``probe`` config_batch field and the ``platform_report``
+#    content type (--probe dry-run mode). A bundle at ABI 1 ignores ``probe``
+#    and installs every hook as usual, which is precisely the kind of silent
+#    disagreement this number exists to make visible.
+AGENT_ABI_VERSION = 2
 
 
 # Maps a protocol-layer NAME (see friTap.flow.layers) to its human display
@@ -103,6 +107,9 @@ class ContentType:
     PRIVATE_KEY_MATERIAL = "private_key_material"
     PRIVATE_PLAINTEXT = "private_plaintext"
     NETLOG = "netlog"
+    # One-shot dry-run diagnostic (--probe): the agent reports which platform
+    # branch it selected and, in probe mode, stops before installing hooks.
+    PLATFORM_REPORT = "platform_report"
     ERROR = "error"
 
 

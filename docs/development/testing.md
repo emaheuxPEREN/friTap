@@ -130,19 +130,17 @@ class TestAgentCompilation:
     def test_compiled_files_exist(self):
         """Test that compilation generates expected files."""
         # Run compilation
-        subprocess.run(['npm', 'run', 'build'], check=True)
+        subprocess.run(['./dev/compile_agent.sh'], check=True)
         
-        # Check files exist
+        # Check the file exists
         ssl_log_js = Path("friTap/fritap_agent.js")
-        ssl_log_legacy_js = Path("friTap/fritap_agent_legacy.js")
         
         assert ssl_log_js.exists()
-        assert ssl_log_legacy_js.exists()
         assert ssl_log_js.stat().st_size > 1000  # Non-empty
         
     def test_compiled_agent_syntax(self):
         """Test that compiled agent has valid JavaScript syntax."""
-        subprocess.run(['npm', 'run', 'build'], check=True)
+        subprocess.run(['./dev/compile_agent.sh'], check=True)
         
         with open('friTap/fritap_agent.js', 'r') as f:
             content = f.read()
@@ -760,10 +758,10 @@ jobs:
         node-version: '18'
         
     - name: Install TypeScript dependencies
-      run: npm install
+      run: npm ci --ignore-scripts
       
     - name: Compile agent
-      run: npm run build
+      run: ./dev/compile_agent.sh
       
     - name: Test agent compilation
       run: python run_tests.py agent
@@ -823,7 +821,7 @@ npm run clean
 rm -f friTap/fritap_agent*.js
 
 # Rebuild and test
-npm run build
+./dev/compile_agent.sh
 python run_tests.py agent
 
 # Check TypeScript errors

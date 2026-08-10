@@ -11,9 +11,50 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    isADRP, isADDimm64, isLDRimmU64, isBL, isBLR, isFunctionPrologueWord,
-    decodeADRPImm, decodeADDImm12, decodeLDRU64Imm, decodeBLImm, regRd, regRn,
+    isADRP, isADDimm64, isLDRimmU64, isSTRimmU64, isRET, isBL, isBLR, isFunctionPrologueWord,
+    decodeADRPImm, decodeADDImm12, decodeLDRU64Imm, decodeSTRU64Imm, decodeBLImm, regRd, regRn,
 } from "./arm64.js";
+
+// Real instruction words read out of Apple's /usr/lib/libboringssl.dylib on
+// macOS 26.3.1 (arm64). These are the two-instruction setter bodies whose
+// immediates ARE the SSL_CTX field offsets friTap needs, so decoding them wrong
+// means writing a function pointer into the wrong struct field and killing the
+// target (fkie-cad/friTap#65).
+const APPLE_SET_INFO_CALLBACK_BODY = 0xf900c401;   // str x1, [x0, #0x188]
+const APPLE_RET = 0xd65f03c0;                      // ret
+
+test("decodes Apple's real SSL_CTX setter body (the #65 offsets)", () => {
+    // The signedness footgun bites hardest here: a naive masked compare against
+    // 0xf9000000 is always false, so the decoder would silently refuse every
+    // real setter and fall back to a guessed offset table.
+    assert.equal((APPLE_SET_INFO_CALLBACK_BODY & 0xffc00000) === 0xf9000000, false);
+    assert.equal(isSTRimmU64(APPLE_SET_INFO_CALLBACK_BODY), true);
+    assert.equal(regRd(APPLE_SET_INFO_CALLBACK_BODY), 1);   // Rt = x1 (the callback arg)
+    assert.equal(regRn(APPLE_SET_INFO_CALLBACK_BODY), 0);   // Rn = x0 (the SSL_CTX arg)
+    assert.equal(decodeSTRU64Imm(APPLE_SET_INFO_CALLBACK_BODY), 0x188);
+    assert.equal(isRET(APPLE_RET), true);
+});
+
+test("STR/RET predicates reject near-misses", () => {
+    assert.equal(isSTRimmU64(0xf9400400), false);  // ldr (load, not store)
+    assert.equal(isSTRimmU64(0xb9000000), false);  // 32-bit str w0
+    assert.equal(isRET(0xd65f0000), false);        // ret to a register other than x30
+    assert.equal(isRET(0xd503201f), false);        // nop
+});
+
+test("STR and LDR share the scaled imm12 encoding", () => {
+    // decodeSTRU64Imm delegates to the LDR decoder; pin that they agree so a
+    // future divergence cannot silently change one of them.
+    for (const imm12 of [0, 1, 0x31, 0x61, 0x62, 0xfff]) {
+        const str = (0xf9000000 | (imm12 << 10)) >>> 0;
+        const ldr = (0xf9400000 | (imm12 << 10)) >>> 0;
+        assert.equal(decodeSTRU64Imm(str), imm12 * 8);
+        assert.equal(decodeSTRU64Imm(str), decodeLDRU64Imm(ldr));
+    }
+    // The two offsets that actually matter on Apple platforms.
+    assert.equal(decodeSTRU64Imm((0xf9000000 | (0x61 << 10)) >>> 0), 0x308);
+    assert.equal(decodeSTRU64Imm((0xf9000000 | (0x62 << 10)) >>> 0), 0x310);
+});
 
 test("the signedness footgun this module guards against", () => {
     // The naive compare is ALWAYS false for a bit-31-set opcode (JS `&` is signed

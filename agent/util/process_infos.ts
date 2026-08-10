@@ -1,6 +1,7 @@
 import { devlog } from "./log.js";
 import { Java } from "../shared/javalib.js";
 import { ObjC } from "../shared/objclib.js";
+import { isIOSFamilyBySysctl } from "./darwin_sysctl.js";
 
 export function get_process_architecture() : string{
         return Process.arch;
@@ -11,11 +12,29 @@ export function get_process_architecture() : string{
  * (Schema A: library -> os -> arch; Schema B: modules -> module -> os -> arch).
  * Returns one of: "android" | "ios" | "macos" | "linux" | "windows".
  */
+let _platformKeyCache: string | null = null;
+
 export function currentPlatformKey(): string {
-    if (isAndroid()) return "android";
-    if (isiOS()) return "ios";
-    if (isMacOS()) return "macos";
-    return Process.platform.toString(); // "linux", "windows"
+    if (_platformKeyCache !== null) return _platformKeyCache;
+
+    const key = isAndroid() ? "android"
+              : isiOS()     ? "ios"
+              : isMacOS()   ? "macos"
+              : Process.platform.toString(); // "linux", "windows"
+
+    // Memoized because this sits on the pattern-lookup hot path (every
+    // PatternStrategy/pattern_based_hooking lookup calls it), and each miss re-runs
+    // the full detection chain.
+    //
+    // The OS cannot change mid-process, but the OBSERVABLE answer can: on Apple
+    // platforms during early spawn, before UIKit/AppKit are mapped and if sysctl is
+    // somehow unavailable, isiOS() and isMacOS() can both come back false and this
+    // would freeze the bogus key "darwin" — which matches no pattern file — for the
+    // rest of the process. So only a confident answer is cached.
+    if (Process.platform !== "darwin" || key === "ios" || key === "macos") {
+        _platformKeyCache = key;
+    }
+    return key;
 }
 
 /**
@@ -30,7 +49,13 @@ export function normalizeArchKey(arch?: string): string {
 
 
 export function isAndroid(): boolean{
-    if(typeof Java !== "undefined" && Java.available && Process.platform == "linux"){
+    // Platform check FIRST. `Java.available` is a getter that walks the entire
+    // module list on every read off Android: frida-java-bridge only memoizes its
+    // API probe on success, so on darwin/windows cachedApi stays null and each read
+    // re-runs Process.enumerateModules(). isAndroid() sits on the pattern-lookup
+    // hot path via currentPlatformKey(), so reading it before the cheap platform
+    // guard cost a full module enumeration per lookup.
+    if(Process.platform == "linux" && typeof Java !== "undefined" && Java.available){
         try{
             Java.androidVersion // this will raise an error when we are not under Android
             return true
@@ -139,7 +164,20 @@ export function isiOS(): boolean{
                 return false;
             }
 
-            // Fallback to improved version string check
+            // Neither framework is loaded yet — the normal state in SPAWN mode,
+            // where the process is still suspended. Ask the kernel instead of
+            // Foundation: is_macos_based_version_string() sends
+            // -operatingSystemVersionString to NSProcessInfo, which KILLS a
+            // suspended spawned process (fkie-cad/friTap#65). sysctl needs no
+            // ObjC/Swift runtime and is safe this early.
+            const iosBySysctl = isIOSFamilyBySysctl();
+            if (iosBySysctl !== null) {
+                devlog(`[OS Detection] sysctl device family -> ${iosBySysctl ? "iOS" : "macOS"}`);
+                return iosBySysctl;
+            }
+
+            // Only if the kernel could not tell us either: the original
+            // Foundation-based check.
             return !is_macos_based_version_string();
         } catch(error) {
             devlog(`[OS Detection] iOS detection error: ${error}`);
@@ -173,6 +211,14 @@ export function isMacOS(): boolean{
             if (ObjC.classes.UIApplication !== undefined) {
                 devlog("[OS Detection] UIKit found -> iOS (not macOS)");
                 return false;
+            }
+
+            // Neither framework loaded (spawn mode): ask the kernel before
+            // Foundation — see the matching comment in isiOS().
+            const iosBySysctl = isIOSFamilyBySysctl();
+            if (iosBySysctl !== null) {
+                devlog(`[OS Detection] sysctl device family -> ${iosBySysctl ? "iOS" : "macOS"}`);
+                return !iosBySysctl;
             }
 
             // Fallback to version string check

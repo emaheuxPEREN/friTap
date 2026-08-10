@@ -40,6 +40,13 @@ class ScriptContext:
         True when debug mode (Chrome Inspector) is active.
     debug_output : bool
         True when verbose debug logging is active.
+    script_load_timeout : float | None
+        Upper bound in seconds for a plugin's ``load_script()`` call, already
+        resolved from the host's configuration (see
+        :func:`friTap.config.effective_script_load_timeout`). ``None`` means
+        "no bound" — either the user opted out with ``--script-load-timeout 0``
+        or the host did not supply one. Carried here rather than fetched by the
+        plugin so that ``ScriptPlugin`` never has to reach back into the host.
     """
 
     backend: "Backend"
@@ -51,3 +58,4 @@ class ScriptContext:
     debug: bool = False
     debug_output: bool = False
     session: Optional["Session"] = None
+    script_load_timeout: Optional[float] = None

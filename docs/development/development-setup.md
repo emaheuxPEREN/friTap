@@ -6,7 +6,7 @@ This guide provides comprehensive instructions for setting up a friTap developme
 
 ### Prerequisites
 
-- **Python 3.7+** (recommended: 3.9+)
+- **Python 3.10+** (`setup.py` sets `python_requires=">=3.10"`)
 - **Node.js 16+** (for TypeScript agent compilation)
 - **Git** for version control
 - **Docker** (optional, for BoringSecretHunter integration)
@@ -31,13 +31,13 @@ This script automatically handles all setup requirements and verifies the instal
 The `dev/setup_dev.py` script performs the following steps:
 
 ### Python Environment Setup
-- Validates Python 3.7+ installation
+- Validates Python 3.10+ installation
 - Installs friTap in development mode (`pip install -e .`)
 - Installs all development dependencies from `requirements-dev.txt`
 
 ### Node.js Environment Setup
 - Verifies Node.js 16+ and npm availability
-- Installs TypeScript compilation dependencies (`npm install`)
+- Installs TypeScript compilation dependencies (`npm ci --ignore-scripts`)
 - Provides platform-specific installation guidance if missing
 
 ### frida-compile Installation
@@ -46,7 +46,7 @@ The `dev/setup_dev.py` script performs the following steps:
 - Ensures compatibility with current Frida releases
 
 ### Agent Compilation Testing
-- Tests TypeScript agent compilation (`npm run build`)
+- Tests TypeScript agent compilation (`./dev/compile_agent.sh`)
 - Verifies generated JavaScript files exist
 - Validates compilation process works correctly
 
@@ -116,11 +116,11 @@ frida-compile --version
 # Test Python installation
 python -c "import friTap; print('friTap imported successfully')"
 
-# Test TypeScript compilation
-npm run build
+# Test TypeScript compilation (pinned toolchain, then the real build)
+npm ci --ignore-scripts && ./dev/compile_agent.sh
 
-# Verify compiled agents exist
-ls -la friTap/fritap_agent.js friTap/fritap_agent_legacy.js
+# Verify the compiled agent exists
+ls -la friTap/fritap_agent.js
 
 # Run test framework check
 python run_tests.py summary
@@ -190,8 +190,17 @@ The `package.json` file includes all necessary TypeScript dependencies:
 
 Install with:
 ```bash
-npm install
+npm ci --ignore-scripts
 ```
+
+!!! danger "Never use `npm install` here"
+    `package.json` declares `"prepare": "npm run build"`, so a bare
+    `npm install` silently re-runs `frida-compile` — potentially with unpinned
+    dependency versions, which can emit a bundle without its trailing source
+    map. The `agent-build-check` CI job rejects that. Use
+    `npm ci --ignore-scripts` (exactly what CI does,
+    `.github/workflows/ci.yml:101`) and then build explicitly with
+    `./dev/compile_agent.sh`.
 
 ## TypeScript Agent Development
 
@@ -239,18 +248,22 @@ agent/
 #### Development Compilation
 
 ```bash
-# Primary compilation (recommended)
-npm run build
+# Primary compilation (the only supported way)
+npm ci --ignore-scripts   # once, to pin the toolchain
+./dev/compile_agent.sh
 
-# Direct frida-compile invocation
-frida-compile agent/fritap_agent.ts -o friTap/fritap_agent.js
-
-# Watch mode for development
+# Watch mode for development (writes to friTap/_fritap_agent.js, not the bundle)
 npm run watch
 
 # Test compilation
 python run_tests.py agent
 ```
+
+!!! important "`./dev/compile_agent.sh` is the only real check"
+    `tsc --noEmit` does **not** prove the bundle builds. Only the script's
+    trailing `done. Agent: <bytes>` line proves a rebuild happened — a failed
+    build leaves `friTap/fritap_agent.js` in an **undefined** state, not
+    reliably the previous version.
 
 #### What Compilation Does
 
@@ -263,13 +276,14 @@ python run_tests.py agent
 #### Compilation Output
 
 ```bash
-$ npm run build
-> friTap build
-> frida-compile agent/fritap_agent.ts -o friTap/fritap_agent.js
-
-Compiling main agent...
-✓ Generated friTap/fritap_agent.js (450KB)
+$ ./dev/compile_agent.sh
+[compile_agent.sh] bridges already present in node_modules — skipping frida-pm install
+[compile_agent.sh] rebuilding friTap/fritap_agent.js from agent/fritap_agent.ts
+[compile_agent.sh] done. Agent: 2339452 bytes
 ```
+
+The bundle is roughly **2.3 MB**. The `done. Agent: <bytes>` line is the success
+signal — if it is missing, the build failed.
 
 ### Agent Development Cycle
 
@@ -278,7 +292,7 @@ Compiling main agent...
 vim agent/ssl_lib/new_library.ts
 
 # 2. Compile agent  
-npm run build
+./dev/compile_agent.sh
 
 # 3. Test compilation
 python run_tests.py agent
@@ -491,7 +505,7 @@ sudo apt-get install libpcap-dev  # For scapy
 xcode-select --install
 
 # Install Homebrew dependencies
-brew install node python@3.9
+brew install node python@3.11
 
 # For optional dependencies
 brew install libpcap  # For scapy

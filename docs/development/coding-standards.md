@@ -596,7 +596,7 @@ mypy friTap/                        # Check types
 pytest tests/                       # Run tests
 
 # TypeScript compilation check
-npm run build                       # Verify agent compiles
+./dev/compile_agent.sh              # Verify agent compiles
 ```
 
 ## Testing Standards

@@ -11,7 +11,7 @@ Routes agent message payloads to the EventBus as typed events.
 from __future__ import annotations
 import logging
 
-from .events import EventBus, KeylogEvent, DatalogEvent, LibraryDetectedEvent, AntiTamperDetectedEvent, ConsoleEvent, SessionEvent, OhttpEvent, HookBreadcrumbEvent
+from .events import EventBus, KeylogEvent, DatalogEvent, LibraryDetectedEvent, AntiTamperDetectedEvent, ConsoleEvent, SessionEvent, OhttpEvent, HookBreadcrumbEvent, PlatformReportEvent
 from .constants import SSL_READ, ContentType
 from .connection_index import resolve_connection_key
 from .ssl_logger import get_addr_string
@@ -90,6 +90,8 @@ class MessageRouter:
             self._emit_console_dev(payload)
         elif content_type == "hook_breadcrumb":
             self._emit_hook_breadcrumb(payload)
+        elif content_type == ContentType.PLATFORM_REPORT:
+            self._emit_platform_report(payload)
 
     def _emit_keylog(self, payload: dict) -> None:
         self._event_bus.emit(KeylogEvent(
@@ -192,6 +194,24 @@ class MessageRouter:
         # target dies inside it.
         self._event_bus.emit(HookBreadcrumbEvent(
             marker=payload.get("hook_breadcrumb", ""),
+        ))
+
+    def _emit_platform_report(self, payload: dict) -> None:
+        # The agent's one-shot "which platform branch did I take?" report. Kept
+        # dumb on purpose: SSL_Logger owns the presentation (one unconditional
+        # log line) and the --probe acknowledgement, so the router carries no
+        # probe-mode policy.
+        try:
+            abi = int(payload.get("abi", 0) or 0)
+        except (TypeError, ValueError):
+            # A bundle that sends a non-numeric ABI is still worth reporting;
+            # only the version number is unknown.
+            abi = 0
+        self._event_bus.emit(PlatformReportEvent(
+            platform=str(payload.get("platform", "")),
+            target=str(payload.get("target", "")),
+            probe=bool(payload.get("probe", False)),
+            abi=abi,
         ))
 
     def _emit_ssh_key(self, payload: dict) -> None:

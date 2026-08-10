@@ -12,6 +12,19 @@ and export analysis.
 class LibraryInspector:
     """Inspects loaded libraries in a target process using tlsLibHunter."""
 
+    # :meth:`inspect` and :meth:`extract_libraries` never raise -- they catch
+    # everything and report failure in their RETURN VALUE. This prefix is
+    # therefore the failure contract the CLI keys off (see
+    # ``_run_early_exit_command`` in friTap.py, which turns it into exit code 2).
+    # Rewording an error string without going through this constant would
+    # silently make ``fritap -ll`` exit 0 again on a failed scan.
+    ERROR_PREFIX = "Error: "
+
+    @staticmethod
+    def is_error(result) -> bool:
+        """True when ``result`` is a failure report from one of the scanners."""
+        return isinstance(result, str) and result.startswith(LibraryInspector.ERROR_PREFIX)
+
     @staticmethod
     def inspect(config, logger) -> str:
         """Scan for TLS libraries using tlsLibHunter.
@@ -31,7 +44,7 @@ class LibraryInspector:
             return LibraryInspector._format_scan_result(result)
         except Exception as e:
             logger.error("Error during library inspection: %s", e)
-            return f"Error: Failed to inspect libraries - {e}"
+            return f"{LibraryInspector.ERROR_PREFIX}Failed to inspect libraries - {e}"
 
     @staticmethod
     def extract_libraries(config, logger, output_dir) -> str:
@@ -59,7 +72,7 @@ class LibraryInspector:
             return "\n".join(lines)
         except Exception as e:
             logger.error("Error during library extraction: %s", e)
-            return f"Error: Failed to extract libraries - {e}"
+            return f"{LibraryInspector.ERROR_PREFIX}Failed to extract libraries - {e}"
 
     @staticmethod
     def scan_to_dicts(config, logger) -> list:

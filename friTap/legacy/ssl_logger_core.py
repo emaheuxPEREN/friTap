@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from ..backends.base import BackendName, ScriptRuntime
+from ..backends.base import BackendName, BackendScriptLoadTimeout, ScriptRuntime
 import tempfile
 import os
 import re
@@ -26,19 +26,57 @@ from ..events import (
     ScriptLoadedEvent,
     HookBreadcrumbEvent,
     AntiTamperDetectedEvent,
+    PlatformReportEvent,
 )
-from ..config import FriTapConfig
+from ..config import FriTapConfig, effective_script_load_timeout
 from ..constants import SSL_READ, SSL_WRITE, AGENT_ABI_VERSION
 from dataclasses import dataclass
+from typing import List, NamedTuple, Optional, Tuple
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 
 @dataclass(slots=True)
-class _ChildAddedSentinel:
-    """Internal sentinel queued by on_child_added for the consumer thread."""
-    child: object
+class _InstrumentRequest:
+    """A gated child/spawned process waiting for the instrument worker.
 
+    Carries only plain values: the process it describes may already be gone by
+    the time the worker gets to it, and nothing here may need the frida object.
+    """
+    pid: int
+    label: str
+    identifier: object = None
+
+
+class TargetOS(NamedTuple):
+    """What frida reports about the target platform: ``os.id`` plus ``access``.
+
+    Empty strings mean "we could not find out" (no device yet, backend error) —
+    the crash path must degrade quietly rather than raise, so there is no
+    exception and no sentinel object to special-case.
+
+    ``access`` is the distinction that trips people up: frida reports
+    ``"jailed"`` for a **Gadget-injected app**, NOT for "the device is not
+    jailbroken". A jailed target means friTap is talking to one app that embeds
+    frida-gadget instead of a device-wide frida-server, so it cannot spawn
+    arbitrary apps — while ``"full"`` means a device-wide frida-server (the
+    usual jailbroken setup). Crash-report retrieval is unaffected either way:
+    ``idevicecrashreport`` talks to usbmuxd, not to frida.
+    """
+
+    os_id: str = ""
+    access: str = ""
+
+
+#: Unknown platform — returned by _query_os_id() whenever the lookup fails.
+UNKNOWN_TARGET_OS = TargetOS()
+
+#: How far *before* the session start friTap still accepts an iOS crash report
+#: as "ours" (seconds). Report timestamps come from the device clock and are
+#: often naive local times, so an exact host-side cut-off would discard the very
+#: report we need; a small negative tolerance only widens the window, and the
+#: process-name + pid matching in friTap.ios keeps the extra window harmless.
+IOS_CRASH_REPORT_CLOCK_TOLERANCE = 120.0
 
 try:
     import hexdump  # pylint: disable=g-import-not-at-top
@@ -108,6 +146,14 @@ class SSL_Logger():
         self._consumer_stop = threading.Event()
         self._consumer_thread: threading.Thread | None = None
         self._queue_drop_count = 0
+
+        # Instrumentation queue: child/spawn gating events arrive on Frida's
+        # own event thread, where instrument() must never run — it blocks in
+        # script.load() for as long as the agent takes to install its hooks.
+        self._instrument_queue: queue.Queue = queue.Queue(maxsize=256)
+        self._instrument_stop = threading.Event()
+        self._instrument_thread: threading.Thread | None = None
+        self._instrument_thread_lock = threading.Lock()
         self.target_threads = None
         self.tmpdir = None
         self.filename = ""
@@ -194,6 +240,12 @@ class SSL_Logger():
         self._last_hook_breadcrumb = ""
         self._crash_reported = False
         self._event_bus.subscribe(HookBreadcrumbEvent, self._on_hook_breadcrumb)
+        # Platform report: the agent tells us which platform branch it selected.
+        # Always logged (see _on_platform_report) and, under --probe, also the
+        # acknowledgement that proves the loaded bundle understands probe mode.
+        self._platform_report = None
+        self._platform_report_received = threading.Event()
+        self._event_bus.subscribe(PlatformReportEvent, self._on_platform_report)
         # Remember if a known anti-tamper runtime (e.g. PairIP) was reported, so a
         # later process-terminated crash can be attributed to it (fkie-cad/friTap#64).
         self._anti_tamper_seen = ""
@@ -203,6 +255,17 @@ class SSL_Logger():
         # later 'detached' handler can report the REAL cause even when the detach
         # itself has no crash object attached.
         self._pending_crash = None
+        # iOS crash-report state, filled by _enrich_crash_log_ios() so the
+        # guidance block can quote the decoded terminator.
+        self._ios_crash_report = None
+        self._ios_crash_verdict = None
+        # Lower bound for "this crash report belongs to this friTap run".
+        # Recorded in the constructor rather than in start_fritap_session()
+        # because the constructor is the one place every entry point (CLI, TUI,
+        # programmatic use, gated children) goes through, and being slightly too
+        # early is the safe direction: it only widens the window, whereas a
+        # timestamp taken too late would discard the report we are looking for.
+        self._session_start_time = time.time()
 
         # FlowCollector created lazily — only when a plugin or TUI accesses it.
         # The TUI creates its own FlowCollector in capture_controller.py.
@@ -366,6 +429,11 @@ class SSL_Logger():
     def patterns(self):
         return self._config.hooking.patterns
 
+    @property
+    def probe(self) -> bool:
+        """--probe: dry run — report the platform branch, install no hooks."""
+        return bool(getattr(self._config.hooking, 'probe', False))
+
     def _on_library_detected(self, event):
         """Handle library detection events.
 
@@ -503,6 +571,34 @@ class SSL_Logger():
         if event.marker:
             self._last_hook_breadcrumb = event.marker
 
+    def _on_platform_report(self, event: "PlatformReportEvent") -> None:
+        """Log the platform branch the agent selected, and ack it for probe mode.
+
+        Logged at INFO *unconditionally* — not gated on -v/--debugoutput —
+        because "which platform code path ran, and did the agent get that far?"
+        is the first question on every instrumentation-crash report
+        (fkie-cad/friTap#65), and a user who is already crashing cannot be
+        expected to know they need a second flag to see it. One line only.
+        """
+        self._platform_report = event
+        self.logger.info(
+            "Agent platform report: %s (target=%s, agent ABI %s)",
+            event.platform or "unknown platform",
+            event.target or "unknown",
+            event.abi,
+        )
+        self._platform_report_received.set()
+
+    def wait_for_platform_report(self, timeout: float = 3.0) -> bool:
+        """Block up to *timeout* seconds for the agent's platform report.
+
+        Returns True when the report arrived (possibly before this call), False
+        on timeout. Reports travel through the message queue and are routed on
+        the consumer thread, so even a report the agent sent during
+        ``script.load()`` may land slightly after instrumentation returns.
+        """
+        return self._platform_report_received.wait(timeout)
+
     def _on_anti_tamper_detected(self, event: "AntiTamperDetectedEvent") -> None:
         """Remember a detected anti-tamper runtime so a later process-terminated
         crash can be attributed to it (fkie-cad/friTap#64)."""
@@ -530,6 +626,54 @@ class SSL_Logger():
             result = False
         self._android_target_cached = result
         return result
+
+    def _query_os_id(self) -> TargetOS:
+        """Cached ``(os_id, access)`` of the frida target, e.g. ``("ios", "full")``.
+
+        Deliberately cached in its own attribute instead of reusing
+        ``_android_target_cached``: that flag is a *boolean* answer to a
+        different question and is set by callers/tests to neutralize the Android
+        enrichment, so folding both lookups into it would couple them.
+
+        Read through the backend abstraction (``query_system_parameters``, see
+        ``frida_backend._collect_context`` for the same non-raising probe), with
+        a direct device call as fallback for loggers built without a backend.
+        Never raises: an unusable device yields :data:`UNKNOWN_TARGET_OS`.
+        """
+        cached = getattr(self, "_target_os_cached", None)
+        if cached is not None:
+            return cached
+        result = UNKNOWN_TARGET_OS
+        try:
+            params = self._query_system_parameters()
+            os_info = params.get("os", {}) if isinstance(params, dict) else {}
+            result = TargetOS(
+                os_id=str(os_info.get("id", "") or "").lower(),
+                access=str(params.get("access", "") or "").lower(),
+            )
+        except Exception:
+            result = UNKNOWN_TARGET_OS
+        self._target_os_cached = result
+        return result
+
+    def _query_system_parameters(self) -> dict:
+        """Raw frida system parameters for the current device (may raise)."""
+        device = getattr(self, "device", None)
+        if device is None:
+            return {}
+        backend = getattr(self, "_backend", None)
+        if backend is not None:
+            return backend.query_system_parameters(device) or {}
+        return device.query_system_parameters() or {}
+
+    def _is_ios_target(self) -> bool:
+        """Cached check: is the Frida device an iOS target?
+
+        Mirrors :meth:`_is_android_target` and gates the iOS crash-report
+        enrichment plus the iOS-specific guidance, both of which are actively
+        misleading on any other platform.
+        """
+        return self._query_os_id().os_id == "ios"
 
     def _target_is_wine(self) -> bool:
         """Was the spawn target a Wine launcher binary?
@@ -668,6 +812,164 @@ class SSL_Logger():
                 pass
         return sig, abort
 
+    @staticmethod
+    def _parse_crash_cause_ios(report) -> Tuple[Optional[str], Optional[str]]:
+        """Adapt a parsed iOS crash report to the ``(signal, abort_message)``
+        pair the crash headline already knows how to render.
+
+        A pure adapter on purpose: all parsing and decoding lives in
+        :mod:`friTap.ios`, this only picks the two fields the existing headline
+        consumes. ``signal`` prefers the POSIX signal name and falls back to the
+        Mach exception type (an iOS report may carry only the latter);
+        ``abort_message`` is the strongest human-readable evidence in the report.
+        """
+        if report is None:
+            return None, None
+        collapse = lambda text: " ".join(str(text or "").split())  # noqa: E731
+        signal_name = collapse(getattr(report, "signal", "")) or \
+            collapse(getattr(report, "exception_type", ""))
+        abort = (
+            collapse(getattr(report, "termination_reason", ""))
+            or collapse(getattr(report, "asi", ""))
+            or collapse(getattr(report, "exception_subtype", ""))
+        )
+        return signal_name or None, abort or None
+
+    def _enrich_crash_log_ios(self, crash, writer):
+        """Pull the ReportCrash ``.ips`` report for the crashed iOS process into
+        the debug log and parse the signal / termination reason from it. Returns
+        ``(signal, abort_message)``. No-op (``(None, None)``) off iOS or without
+        libimobiledevice; fully guarded so it never raises into the crash path.
+
+        Sibling of :meth:`_enrich_crash_log_android`: the device I/O and report
+        knowledge live on :class:`friTap.ios.IOS`, this method only correlates,
+        records and parses, and additionally remembers the decoded verdict so the
+        guidance block below can quote it.
+        """
+        if not self._is_ios_target():
+            return None, None
+        try:
+            from ..ios import IOS
+            # Same device resolution as the Android path: an explicit --mobile/
+            # device id wins, otherwise the frida device's own id (the UDID).
+            serial = self.device_id or getattr(self.device, "id", None)
+            helper = IOS(device_id=serial)
+            if not helper.check_idevicecrashreport_availability():
+                if writer is not None:
+                    writer.write(
+                        "\n# iOS crash enrichment skipped: idevicecrashreport not available\n")
+                return None, None
+        except Exception:
+            return None, None
+
+        try:
+            pid = self.pid or (getattr(crash, "pid", None) if crash is not None else None)
+            process_name = (self.target_app or "").split()[-1] if self.target_app else ""
+            # newer_than keeps an old, unrelated crash from being presented as
+            # this run's crash (reports accumulate on the device for weeks).
+            newer_than = (getattr(self, "_session_start_time", None) or time.time()) \
+                - IOS_CRASH_REPORT_CLOCK_TOLERANCE
+            report = helper.get_latest_crash_report(
+                process_name, pid=pid, newer_than=newer_than)
+            if report is None:
+                return None, None
+            self._ios_crash_report = report
+            self._write_crash_section(
+                writer, f"iOS crash report {report.path}", report.raw)
+            summary, verdict = helper.describe_crash(report)
+            self._ios_crash_verdict = verdict
+            self._write_crash_section(writer, "iOS crash summary", summary)
+            if writer is not None:
+                try:
+                    writer.flush()
+                except Exception:
+                    pass
+            return self._parse_crash_cause_ios(report)
+        except Exception:
+            self.logger.debug("iOS crash enrichment failed", exc_info=True)
+            return None, None
+
+    @staticmethod
+    def _ios_crash_guidance(breadcrumb, verdict, spawn, access="") -> List[str]:
+        """Return the user-facing guidance lines for a dead iOS target.
+
+        Pure so the wording stays testable: the caller only logs the lines. The
+        order is deliberate — *where* the agent was (the breadcrumb) first,
+        because it separates "friTap never installed a hook" from "a hook broke
+        the app"; then *why* the OS killed the process (the decoded terminator);
+        then what to try next.
+        """
+        breadcrumb = breadcrumb or ""
+        lines = ["iOS target died while friTap was instrumenting it."]
+
+        # (a) Breadcrumb verdict. Wording kept in sync with
+        # friTap.friTap._script_load_timeout_hints so both places tell the user
+        # the same story about the same marker.
+        if breadcrumb.startswith("agent-init"):
+            lines.append(
+                f"  The agent died before any hook was installed "
+                f"(last agent stage: {breadcrumb})."
+            )
+        elif breadcrumb.startswith("install-phase"):
+            lines.append(
+                f"  The agent died while installing hooks "
+                f"(last agent stage: {breadcrumb})."
+            )
+        elif breadcrumb:
+            lines.append(f"  Last agent stage: {breadcrumb}.")
+        else:
+            lines.append("  The agent never reported a startup stage.")
+
+        # (b) Decoded reason from the ReportCrash .ips (friTap.ios.decode_terminator).
+        if verdict is not None:
+            lines.append(f"  Crash report says: {getattr(verdict, 'verdict', verdict)}")
+            next_step = getattr(verdict, "next_step", "")
+            if next_step:
+                lines.append(f"  -> {next_step}")
+        else:
+            lines.append(
+                "  No iOS crash report could be decoded (install libimobiledevice "
+                "and keep the device connected so friTap can pull the ReportCrash "
+                ".ips file)."
+            )
+
+        # (c) Concrete retries.
+        if spawn:
+            lines.append(
+                "  -> Start the app yourself, then ATTACH friTap (run WITHOUT -s): "
+                "spawn-time instrumentation of a gated app is the most fragile "
+                "path on iOS."
+            )
+        else:
+            lines.append(
+                "  -> friTap was attaching (no -s), so the app was already up: "
+                "retry the other way round (spawn with -s) to instrument before "
+                "the app's own startup work runs."
+            )
+        lines.append(
+            "  -> Re-run with --probe to isolate the failing agent stage."
+        )
+        lines.append(
+            "  -> Re-run with `fritap --modern`: the modern path does not write "
+            "into the SSL_CTX struct at all, so if that run survives, the crash "
+            "is a wrong keylog-callback offset for this library build."
+        )
+        if access == "jailed":
+            lines.append(
+                "  Note: frida reports a jailed target, i.e. friTap is talking to "
+                "a frida-gadget-injected app rather than a device-wide "
+                "frida-server. Spawning other apps is not possible in this setup — "
+                "relaunch the Gadget-patched app manually to retry, and re-check "
+                "that the app was re-signed with the Gadget correctly embedded."
+            )
+        elif access == "full":
+            lines.append(
+                "  Note: frida reports full device access (device-wide "
+                "frida-server). Verify frida-server itself is healthy and "
+                "properly signed (`frida-ps -Ua`) before blaming the hooks."
+            )
+        return lines
+
     def _report_target_crash(self, reason: str, crash=None) -> None:
         """Surface an unexpected target-process death clearly to the user.
 
@@ -726,6 +1028,15 @@ class SSL_Logger():
         except Exception:
             self.logger.debug("android crash enrichment failed", exc_info=True)
 
+        # iOS enrichment (ReportCrash .ips) — same posture as the Android branch,
+        # so signal/abort fall back through both platforms and neither can raise.
+        try:
+            enrich_sig, enrich_abort = self._enrich_crash_log_ios(crash, writer)
+            signal_name = signal_name or enrich_sig
+            abort_msg = abort_msg or enrich_abort
+        except Exception:
+            self.logger.debug("ios crash enrichment failed", exc_info=True)
+
         # Headline: report the real cause when we have one; otherwise fall back
         # to the (lower-confidence) "crashed inside a hook" hypothesis.
         have_real_cause = bool(signal_name or abort_msg)
@@ -741,80 +1052,93 @@ class SSL_Logger():
                 headline += f" (last instrumented: {crumb})"
         self.logger.error(headline)
 
-        # Platform-aware guidance (spawn crashes only). Only claim anti-tamper
-        # when there is real evidence — never guess PairIP for a normal app.
-        if reason == "process-terminated" and self.spawn:
-            if self._anti_tamper_seen:
-                self.logger.error(
-                    f"Anti-tamper protection was detected in this process "
-                    f"({self._anti_tamper_seen}). It self-destructs when friTap's hooks "
-                    f"are present during startup.")
-                self.logger.error(
-                    "  -> Spawn (-s) capture is unreliable on such apps even with "
-                    "--no-loader-hook, because the TLS-library hooks themselves are "
-                    "present during the startup integrity scan.")
-                self.logger.error(
-                    "  -> Start the app first, then ATTACH friTap (run WITHOUT -s). "
-                    "See fkie-cad/friTap#64.")
-            elif self._target_is_wine():
-                import os as _os
-                running_as_root = False
-                try:
-                    running_as_root = _os.geteuid() == 0
-                except Exception:
+        # Platform-aware guidance. No longer spawn-only: the fkie-cad/friTap#65
+        # reporter was ATTACHING, and an attach-mode crash used to get no
+        # guidance at all. Only claim anti-tamper when there is real evidence —
+        # never guess PairIP for a normal app.
+        if reason == "process-terminated":
+            if self._is_ios_target():
+                # iOS first: its crash report is far more specific than any
+                # of the heuristics below, and it exists in attach mode too.
+                ios_report = getattr(self, "_ios_crash_report", None)
+                if ios_report is not None:
+                    self.logger.error("iOS crash report: %s", ios_report.summary)
+                for line in self._ios_crash_guidance(
+                        crumb, getattr(self, "_ios_crash_verdict", None), self.spawn,
+                        self._query_os_id().access):
+                    self.logger.error(line)
+            elif self.spawn:
+                if self._anti_tamper_seen:
+                    self.logger.error(
+                        f"Anti-tamper protection was detected in this process "
+                        f"({self._anti_tamper_seen}). It self-destructs when friTap's hooks "
+                        f"are present during startup.")
+                    self.logger.error(
+                        "  -> Spawn (-s) capture is unreliable on such apps even with "
+                        "--no-loader-hook, because the TLS-library hooks themselves are "
+                        "present during the startup integrity scan.")
+                    self.logger.error(
+                        "  -> Start the app first, then ATTACH friTap (run WITHOUT -s). "
+                        "See fkie-cad/friTap#64.")
+                elif self._target_is_wine():
+                    import os as _os
                     running_as_root = False
-                if running_as_root:
-                    self.logger.error(
-                        "Hint: target was launched via Wine and friTap is running as "
-                        "root. The most common cause is sudo + a user-owned WINEPREFIX "
-                        "(Wine refuses the prefix and exits before any TLS hook runs).")
-                    self.logger.error(
-                        "  -> Recommended: drop sudo and run friTap as your desktop user "
-                        "(ensure `sysctl kernel.yama.ptrace_scope=0` so Frida can attach).")
-                    self.logger.error(
-                        "  -> Alternative: set WINEPREFIX=/root/.wine so Wine creates a "
-                        "fresh root-owned prefix. See docs/platforms/wine.md.")
-                else:
-                    self.logger.error(
-                        "Hint: Wine target terminated unexpectedly. Common Wine causes: "
-                        "(a) the target is a single-instance app (e.g. VLC) that handed "
-                        "off to an existing instance and exited; (b) the spawned binary "
-                        "needs a prefix init (`wine wineboot`); (c) an early-startup "
-                        "anti-cheat / DRM aborted.")
-                    self.logger.error(
-                        "  -> Try attach mode: start the app yourself with `wine ...`, "
-                        "then `fritap --experimental -p $(pgrep -f your_app.exe)`. See "
-                        "docs/platforms/wine.md.")
-            else:
-                # No confirmed anti-tamper and not Wine.
-                if have_real_cause:
-                    # The real cause is in the headline above — do NOT guess
-                    # PairIP. The breadcrumb is only a weak hint (it may have run
-                    # on a different thread than the one that actually crashed).
-                    if crumb:
+                    try:
+                        running_as_root = _os.geteuid() == 0
+                    except Exception:
+                        running_as_root = False
+                    if running_as_root:
                         self.logger.error(
-                            f"  Note: the last agent hook activity was '{crumb}', but it may "
-                            f"have run on a different thread and be unrelated to the crash above.")
-                    self.logger.error(
-                        "  -> Spawn-time instrumentation can destabilize fragile app startup. "
-                        "Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
-                        "See fkie-cad/friTap#64.")
-                elif self._is_android_target():
-                    # No concrete cause captured on Android — an anti-tamper
-                    # self-destruct (e.g. Google PairIP / libpairipcore.so) is a
-                    # reasonable hypothesis, surfaced only as a possibility.
-                    self.logger.error(
-                        "This may be an anti-tamper protection (e.g. Google PairIP / "
-                        "libpairipcore.so) self-destructing in response to friTap's hooks "
-                        "during app startup.")
-                    self.logger.error(
-                        "  -> Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
-                        "See fkie-cad/friTap#64.")
+                            "Hint: target was launched via Wine and friTap is running as "
+                            "root. The most common cause is sudo + a user-owned WINEPREFIX "
+                            "(Wine refuses the prefix and exits before any TLS hook runs).")
+                        self.logger.error(
+                            "  -> Recommended: drop sudo and run friTap as your desktop user "
+                            "(ensure `sysctl kernel.yama.ptrace_scope=0` so Frida can attach).")
+                        self.logger.error(
+                            "  -> Alternative: set WINEPREFIX=/root/.wine so Wine creates a "
+                            "fresh root-owned prefix. See docs/platforms/wine.md.")
+                    else:
+                        self.logger.error(
+                            "Hint: Wine target terminated unexpectedly. Common Wine causes: "
+                            "(a) the target is a single-instance app (e.g. VLC) that handed "
+                            "off to an existing instance and exited; (b) the spawned binary "
+                            "needs a prefix init (`wine wineboot`); (c) an early-startup "
+                            "anti-cheat / DRM aborted.")
+                        self.logger.error(
+                            "  -> Try attach mode: start the app yourself with `wine ...`, "
+                            "then `fritap --experimental -p $(pgrep -f your_app.exe)`. See "
+                            "docs/platforms/wine.md.")
                 else:
-                    self.logger.error(
-                        "  -> Spawn-time instrumentation can destabilize fragile app startup. "
-                        "Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
-                        "See fkie-cad/friTap#64.")
+                    # No confirmed anti-tamper and not Wine.
+                    if have_real_cause:
+                        # The real cause is in the headline above — do NOT guess
+                        # PairIP. The breadcrumb is only a weak hint (it may have run
+                        # on a different thread than the one that actually crashed).
+                        if crumb:
+                            self.logger.error(
+                                f"  Note: the last agent hook activity was '{crumb}', but it may "
+                                f"have run on a different thread and be unrelated to the crash above.")
+                        self.logger.error(
+                            "  -> Spawn-time instrumentation can destabilize fragile app startup. "
+                            "Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
+                            "See fkie-cad/friTap#64.")
+                    elif self._is_android_target():
+                        # No concrete cause captured on Android — an anti-tamper
+                        # self-destruct (e.g. Google PairIP / libpairipcore.so) is a
+                        # reasonable hypothesis, surfaced only as a possibility.
+                        self.logger.error(
+                            "This may be an anti-tamper protection (e.g. Google PairIP / "
+                            "libpairipcore.so) self-destructing in response to friTap's hooks "
+                            "during app startup.")
+                        self.logger.error(
+                            "  -> Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
+                            "See fkie-cad/friTap#64.")
+                    else:
+                        self.logger.error(
+                            "  -> Spawn-time instrumentation can destabilize fragile app startup. "
+                            "Try starting the app first, then ATTACH friTap (run WITHOUT -s). "
+                            "See fkie-cad/friTap#64.")
 
         if log_path:
             self.logger.error(f"Full crash report + hook activity written to: {log_path}")
@@ -867,12 +1191,9 @@ class SSL_Logger():
 
         # Notify script plugins of detach
         if hasattr(self, '_plugin_loader') and self.process and self.device:
-            from ..plugins.script_context import ScriptContext
-            detach_ctx = ScriptContext(
-                backend=self._backend, process=self.process, device=self.device,
-                runtime=getattr(self, '_last_runtime', ScriptRuntime.QJS),
-                event_bus=self._event_bus, backend_name=self._backend.name,
-                debug=self.debug, debug_output=self.debug_output,
+            detach_ctx = self._build_script_context(
+                self.process, self.device,
+                getattr(self, '_last_runtime', ScriptRuntime.QJS),
             )
             self._plugin_loader.detach_all(detach_ctx)
 
@@ -949,7 +1270,7 @@ class SSL_Logger():
         """
         This offers the possibility to work with the JobManger() from the AndroidFridaManager project.
         """
-        if self.script is None:
+        if self.script is None and job is not None:
             self.script = job.script
 
         msg_type = message.get('type')
@@ -963,72 +1284,14 @@ class SSL_Logger():
 
         payload = message.get('payload')
 
-        # Startup handshake: agent requests config values one by one
-        if self.startup and isinstance(payload, str):
-            if payload == 'config_batch':
-                batch = {
-                    'offsets': self.offsets_data,
-                    'patterns': self.pattern_data,
-                    'socket_tracing': self.socket_trace,
-                    'defaultFD': self.enable_default_fd,
-                    'experimental': self.experimental,
-                    'protocol_select': self.protocol,
-                    'install_lsass_hook': self.install_lsass_hook,
-                    'use_modern': getattr(self, 'use_modern', False),
-                    'library_scan': self.scan_results_data,
-                    'library_scan_enabled': self._config.hooking.library_scan,
-                    'ohttp_enabled': getattr(self._config.hooking, 'ohttp_enabled', True),
-                    'quic_capture_mode': getattr(self._config.hooking, 'quic_capture_mode', 'stream'),
-                    'quic_only': getattr(self._config.hooking, 'quic_only', False),
-                    # --no-loader-hook: skip the inline android_dlopen_ext loader
-                    # trampoline (PairIP/anti-tamper SIGSEGV avoidance, friTap#64).
-                    'no_loader_hook': getattr(self._config.hooking, 'no_loader_hook', False),
-                    # Spawn state lets the agent auto-skip the loader hook only in
-                    # spawn mode (where it trips PairIP's startup scan); attach keeps it.
-                    'spawned': bool(self._config.device.spawn),
-                    # EXPERIMENTAL: hardware-breakpoint loader watch (no linker patch).
-                    'stealth_loader': getattr(self._config.hooking, 'stealth_loader', False),
-                    # --pairip-safe: minimal symbol-only keylog on BoringSSL libs;
-                    # skip loader hook, pattern scan, Java & OHTTP (friTap#64).
-                    'pairip_safe': getattr(self._config.hooking, 'pairip_safe', False),
-                    # Override for the HTTP/3 egress-headers chain layer. "auto" keeps
-                    # the winner-takes-all fallback; anything else forces a specific
-                    # layer so chain validation tests can exercise lower tiers on
-                    # builds where the primary layer would otherwise always win.
-                    'quic_egress_headers_layer': getattr(self._config.hooking, 'quic_egress_headers_layer', 'auto'),
-                    # Mirrors the -do / --debugoutput CLI flag so the agent can
-                    # cheaply skip expensive debug-only enumeration (e.g. listing all
-                    # symbol-table candidates for a chain label) when the user did
-                    # not ask for debug output. Without this gate every attach would
-                    # walk the full Cronet/libmonochrome dynsym (~hundreds of MB).
-                    'debug_output': bool(getattr(self._config, 'debug_output', False)),
-                    # In full-capture (-f) mode the raw packets are taken by the external
-                    # tcpdump/scapy thread and the in-agent plaintext datalog is discarded
-                    # by message_handler (`... and not full_capture`), so don't install the
-                    # plaintext read/write hooks at all — only the key-extraction hooks run.
-                    'pcap_enabled': bool(self.pcap_name) and not self.full_capture,
-                    # Symmetric counterpart to pcap_enabled. When the user requested only -p
-                    # (plaintext pcap) without -k, the agent must skip every key-extraction
-                    # path — otherwise it floods the channel with KeylogEvents and burns
-                    # the pattern-scan budget on connections we don't care about. In -f mode
-                    # this stays driven by -k: keys are needed to decrypt the full capture.
-                    'keylog_enabled': bool(self.keylog),
-                    # Generic, protocol-agnostic feature-config passthrough. Keys
-                    # are opt-in feature names (never a protocol literal): e.g.
-                    # 'scan_region' drives the public memory-scan engine
-                    # (agent/shared/scan/), and a private protocol binding reads
-                    # its own sub-keys from the same bag. Empty unless a feature
-                    # was requested, so the default wire shape is unchanged.
-                    'extensions': (
-                        {'scan_region': self._config.hooking.scan_keys_region}
-                        if getattr(self._config.hooking, 'scan_keys_region', None)
-                        else {}
-                    ),
-                }
-                self._backend.post_message(self.script, 'config_batch', batch)
+        # Startup handshake: the agent blocks in recv().wait() until answered.
+        # It is normally answered synchronously on the Frida callback thread
+        # (see _internal_callback_wrapper); this path keeps the responder
+        # reachable for the AndroidFridaManager integration, whose
+        # own_message_handler forwards messages straight here instead.
+        if isinstance(payload, str):
+            if self._answer_startup_handshake(payload, getattr(job, 'script', None)):
                 return
-            from .message_handler import handle_startup_legacy
-            handle_startup_legacy(self, payload)
 
         if not isinstance(payload, dict) or "contentType" not in payload:
             return
@@ -1067,40 +1330,357 @@ class SSL_Logger():
         from .message_handler import handle_message_legacy
         handle_message_legacy(self, payload, data, message)
 
+    # ------------------------------------------------------------------
+    # Startup handshake
+    # ------------------------------------------------------------------
+
+    def _build_config_batch(self) -> dict:
+        """Build the single-round-trip startup configuration for the agent.
+
+        Pure with respect to the session: reads only ``self`` / ``self._config``
+        and posts nothing, so it can be rebuilt for every script that asks.
+        """
+        return {
+            'offsets': self.offsets_data,
+            'patterns': self.pattern_data,
+            'socket_tracing': self.socket_trace,
+            'defaultFD': self.enable_default_fd,
+            'experimental': self.experimental,
+            'protocol_select': self.protocol,
+            'install_lsass_hook': self.install_lsass_hook,
+            'use_modern': getattr(self, 'use_modern', False),
+            'library_scan': self.scan_results_data,
+            'library_scan_enabled': self._config.hooking.library_scan,
+            'ohttp_enabled': getattr(self._config.hooking, 'ohttp_enabled', True),
+            'quic_capture_mode': getattr(self._config.hooking, 'quic_capture_mode', 'stream'),
+            'quic_only': getattr(self._config.hooking, 'quic_only', False),
+            # --no-loader-hook: skip the inline android_dlopen_ext loader
+            # trampoline (PairIP/anti-tamper SIGSEGV avoidance, friTap#64).
+            'no_loader_hook': getattr(self._config.hooking, 'no_loader_hook', False),
+            # Spawn state lets the agent auto-skip the loader hook only in
+            # spawn mode (where it trips PairIP's startup scan); attach keeps it.
+            'spawned': bool(self._config.device.spawn),
+            # EXPERIMENTAL: hardware-breakpoint loader watch (no linker patch).
+            'stealth_loader': getattr(self._config.hooking, 'stealth_loader', False),
+            # --pairip-safe: minimal symbol-only keylog on BoringSSL libs;
+            # skip loader hook, pattern scan, Java & OHTTP (friTap#64).
+            'pairip_safe': getattr(self._config.hooking, 'pairip_safe', False),
+            # --probe: dry run. The agent reports the platform branch it picked
+            # and the hooks it would install, then stops before installing any
+            # of them (fkie-cad/friTap#65 diagnostics).
+            'probe': bool(getattr(self._config.hooking, 'probe', False)),
+            # Override for the HTTP/3 egress-headers chain layer. "auto" keeps
+            # the winner-takes-all fallback; anything else forces a specific
+            # layer so chain validation tests can exercise lower tiers on
+            # builds where the primary layer would otherwise always win.
+            'quic_egress_headers_layer': getattr(self._config.hooking, 'quic_egress_headers_layer', 'auto'),
+            # Mirrors the -do / --debugoutput CLI flag so the agent can
+            # cheaply skip expensive debug-only enumeration (e.g. listing all
+            # symbol-table candidates for a chain label) when the user did
+            # not ask for debug output. Without this gate every attach would
+            # walk the full Cronet/libmonochrome dynsym (~hundreds of MB).
+            'debug_output': bool(getattr(self._config, 'debug_output', False)),
+            # In full-capture (-f) mode the raw packets are taken by the external
+            # tcpdump/scapy thread and the in-agent plaintext datalog is discarded
+            # by message_handler (`... and not full_capture`), so don't install the
+            # plaintext read/write hooks at all — only the key-extraction hooks run.
+            'pcap_enabled': bool(self.pcap_name) and not self.full_capture,
+            # Symmetric counterpart to pcap_enabled. When the user requested only -p
+            # (plaintext pcap) without -k, the agent must skip every key-extraction
+            # path — otherwise it floods the channel with KeylogEvents and burns
+            # the pattern-scan budget on connections we don't care about. In -f mode
+            # this stays driven by -k: keys are needed to decrypt the full capture.
+            'keylog_enabled': bool(self.keylog),
+            # Generic, protocol-agnostic feature-config passthrough. Keys
+            # are opt-in feature names (never a protocol literal): e.g.
+            # 'scan_region' drives the public memory-scan engine
+            # (agent/shared/scan/), and a private protocol binding reads
+            # its own sub-keys from the same bag. Empty unless a feature
+            # was requested, so the default wire shape is unchanged.
+            'extensions': (
+                {'scan_region': self._config.hooking.scan_keys_region}
+                if getattr(self._config.hooking, 'scan_keys_region', None)
+                else {}
+            ),
+        }
+
+    def _answer_startup_handshake(self, payload, script, answered=None) -> bool:
+        """Answer one blocking startup-handshake request from the agent.
+
+        Returns True when ``payload`` was a handshake request that we replied
+        to, meaning the caller must neither enqueue nor route it any further.
+
+        ``script`` is the script that asked. Replying on it rather than on
+        ``self.script`` matters as soon as more than one script exists:
+        ``instrument()`` overwrites ``self.script``, so a reply for the parent's
+        in-flight handshake would otherwise be posted to a freshly created
+        child script — leaving the parent blocked in ``recv().wait()`` forever.
+
+        ``config_batch`` and ``anti`` are answered unconditionally. The old
+        one-shot ``self.startup`` gate made every script after the first hang,
+        because the terminal ``anti`` reply cleared it. The flag still gates the
+        legacy per-field channels, whose replies genuinely only make sense once.
+
+        ``answered`` is an optional set that receives the name of each request
+        answered — a cheap observation hook for callers and tests.
+        """
+        if not isinstance(payload, str):
+            return False
+
+        target = script if script is not None else self.script
+        if target is None:
+            self.logger.warning(
+                "Cannot answer startup handshake '%s': no script to reply on", payload
+            )
+            return False
+
+        if payload == 'config_batch':
+            self._backend.post_message(target, 'config_batch', self._build_config_batch())
+            if answered is not None:
+                answered.add(payload)
+            return True
+
+        if payload == 'anti':
+            # Terminal request of the handshake: the agent resumes its
+            # top-level once this lands, which is what unblocks script.load().
+            self._backend.post_message(target, 'antiroot', self.anti_root)
+            self.startup = False
+            if answered is not None:
+                answered.add(payload)
+            return True
+
+        if self.startup:
+            from .message_handler import handle_startup_legacy
+            if handle_startup_legacy(self, payload, target):
+                if answered is not None:
+                    answered.add(payload)
+                return True
+
+        # An unrecognised string is not ours: report it unanswered so the caller
+        # keeps routing it rather than silently swallowing agent output. Warn,
+        # because the agent only ever sends bare strings to ask a question — if
+        # it is blocked on one we cannot answer, it blocks forever, and that is
+        # precisely the failure this responder exists to prevent.
+        self.logger.warning(
+            "Unanswered agent handshake request '%s' — the agent may be waiting "
+            "on a channel this friTap version does not know. Rebuild the agent "
+            "bundle with ./dev/compile_agent.sh if it is out of step.", payload
+        )
+        return False
+
     def _emit_event_from_payload(self, payload: dict, data: bytes) -> None:
         """Parse an agent message payload and emit the corresponding event."""
         self._message_router.route(payload, data)
 
     def on_child_added(self, child):
-        """Schedule child instrumentation via the message queue.
+        """Schedule child instrumentation on the instrument worker.
 
         Runs on Frida's event thread — enqueue and return fast (same
         pattern as the updated frida-python child_gating.py example
         which uses Reactor.schedule()).
         """
-        try:
-            self._message_queue.put_nowait((_ChildAddedSentinel(child), None))
-        except queue.Full:
-            self.logger.warning("Message queue full — child pid %s not instrumented", child.pid)
+        self._enqueue_instrumentation(child.pid, "child process",
+                                      getattr(child, "identifier", None))
 
     def _handle_child_added(self, child):
-        """Actually instrument a child process (runs on consumer thread)."""
-        self.logger.info(f"Attached to child process with pid {child.pid}")
-        self.instrument(self._backend.attach(self.device, str(child.pid)), self.own_message_handler)
-        self._backend.resume(self.device, child.pid)
+        """Forward a queued child to the instrument worker.
 
+        Kept as the queue-consumer-side entry point for a child that reaches
+        friTap off the Frida event thread. It must not instrument inline: this
+        runs on the queue-consumer thread, and instrument() blocks in script.load()
+        waiting for a handshake reply — which, before the reply moved onto the
+        Frida callback thread, only this very thread could have delivered.
+        """
+        self._enqueue_instrumentation(child.pid, "child process",
+                                      getattr(child, "identifier", None))
 
     def on_spawn_added(self, spawn):
-        # If spawn_gating_all is set, instrument ALL spawned processes (old behavior)
-        # Otherwise, filter by target app identifier
+        # Runs on Frida's device event thread: decide here, instrument on the
+        # worker. If spawn_gating_all is set, instrument ALL spawned processes
+        # (old behavior); otherwise filter by target app identifier.
         if self.spawn_gating_all or self._should_instrument_spawn(spawn.identifier):
             self.logger.info(f"Instrumenting spawned process with pid {spawn.pid}. Name: {spawn.identifier}")
-            self.instrument(self._backend.attach(self.device, str(spawn.pid)), self.own_message_handler)
-            self._backend.resume(self.device, spawn.pid)
+            self._enqueue_instrumentation(spawn.pid, "spawned process", spawn.identifier)
         else:
-            # Resume unrelated processes immediately to prevent them from hanging
+            # Resume unrelated processes immediately to prevent them from hanging.
+            # Cheap and non-blocking, so it stays inline on the event thread —
+            # but it must not raise there, hence _resume_quietly.
             self.logger.debug(f"Skipping unrelated spawn with pid {spawn.pid}. Name: {spawn.identifier}")
-            self._backend.resume(self.device, spawn.pid)
+            self._resume_quietly(spawn.pid)
+
+    # ------------------------------------------------------------------
+    # Gated instrumentation worker
+    # ------------------------------------------------------------------
+
+    def _enqueue_instrumentation(self, pid, label, identifier=None):
+        """Hand a gated process to the serial instrument worker."""
+        if not self.running:
+            # Teardown already started: instrumenting now would resurrect the
+            # worker we just joined. Resume so nothing is left suspended.
+            self.logger.debug("Capture stopping — resuming %s pid %s uninstrumented",
+                              label, pid)
+            self._resume_quietly(pid)
+            return
+
+        request = _InstrumentRequest(pid=pid, label=label, identifier=identifier)
+        self._start_instrument_thread()
+        try:
+            self._instrument_queue.put_nowait(request)
+        except queue.Full:
+            # Never leave the process suspended just because we are backed up:
+            # a gated app that is never resumed is killed by the OS watchdog
+            # (0x8badf00d on iOS) and looks like a friTap crash.
+            self.logger.warning(
+                "Instrumentation queue full — %s pid %s not instrumented", label, pid
+            )
+            self._resume_quietly(pid)
+
+    def _start_instrument_thread(self):
+        """Start the serial worker that instruments gated processes.
+
+        Serial rather than a pool: every instrument() writes ``self.script``,
+        so two concurrent instrumentations would race for it. Separate from the
+        message-consumer thread so a slow agent load can never stall message
+        processing (nor deadlock against it).
+        """
+        with self._instrument_thread_lock:
+            if self._instrument_thread is not None:
+                return
+            self._instrument_stop.clear()
+            self._instrument_thread = threading.Thread(
+                target=self._process_instrument_requests, daemon=True,
+                name="fritap-instrument",
+            )
+            self._instrument_thread.start()
+
+    def _process_instrument_requests(self):
+        """Drain the instrumentation queue one process at a time."""
+        while not self._instrument_stop.is_set():
+            try:
+                request = self._instrument_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                self._instrument_gated_process(request)
+            except Exception:
+                # One unusable child must not end gating for every later one.
+                self.logger.exception(
+                    "Failed to instrument %s pid %s", request.label, request.pid
+                )
+
+    def _instrument_gated_process(self, request):
+        """Instrument one gated process, then resume it no matter what.
+
+        The resume lives in a ``finally`` deliberately: resuming only on success
+        strands the app suspended forever whenever attach or load fails, which
+        the platform then reports as a watchdog kill rather than as friTap's
+        failure to instrument.
+        """
+        try:
+            self.logger.info("Attached to %s with pid %s", request.label, request.pid)
+            self.instrument(
+                self._backend.attach(self.device, str(request.pid)),
+                self.own_message_handler,
+            )
+        finally:
+            self._resume_quietly(request.pid)
+
+    def _load_script_bounded(self, script) -> None:
+        """Load an agent script under the configured time bound.
+
+        The backend raises ``BackendScriptLoadTimeout`` without a breadcrumb —
+        it has no view of the agent's progress trail — so the last reported
+        stage is attached here, where it is known, and the CLI can name the
+        stage the agent died in instead of just reporting a timeout.
+        """
+        try:
+            self._backend.load_script(
+                script, timeout=effective_script_load_timeout(self._config)
+            )
+        except BackendScriptLoadTimeout as exc:
+            if not exc.breadcrumb:
+                exc.breadcrumb = self._last_hook_breadcrumb
+            raise
+
+    def _build_script_context(self, process, device, runtime) -> "ScriptContext":
+        """Build the plugin-facing :class:`ScriptContext` snapshot.
+
+        ``ScriptContext`` is the deliberate seam between plugins and the host,
+        so everything a plugin needs is resolved *here* rather than looked up by
+        the plugin — including the ``script.load()`` bound, which plugins share
+        with the main agent because a wedged plugin script is just as
+        uncancellable and one user-facing knob is easier to reason about.
+        """
+        from ..plugins.script_context import ScriptContext
+
+        return ScriptContext(
+            backend=self._backend, process=process, device=device,
+            runtime=runtime, event_bus=self._event_bus,
+            backend_name=self._backend.name, debug=self.debug,
+            debug_output=self.debug_output,
+            script_load_timeout=effective_script_load_timeout(self._config),
+        )
+
+    def _resume_quietly(self, pid):
+        """Resume a gated process, logging rather than raising on failure."""
+        try:
+            self._backend.resume(self.device, pid)
+        except Exception as exc:
+            # The process may simply have died already — never mask the
+            # instrumentation error this runs alongside.
+            self.logger.warning("Failed to resume pid %s: %s", pid, exc)
+
+    def _drain_instrument_queue(self):
+        """Resume every gated process still waiting for the stopped worker.
+
+        The worker tests the stop event only at the top of its loop while each
+        iteration costs an attach plus a bounded script load, so pending requests
+        routinely outlive it: a multi-process target enqueues several, the stop
+        flag is set while the worker is busy with one, and the rest are never
+        looked at again. Each of those requests names a process that is still
+        *suspended* — and a gated process nobody resumes is killed by the OS
+        watchdog (``0x8badf00d`` on iOS) and reported as the app's own crash
+        rather than as friTap's abandoned queue.
+
+        So this resumes instead of instrumenting, mirroring
+        ``_enqueue_instrumentation``'s teardown branch: by the time we get here
+        the session the instrumentation would need is already going away, and
+        "uninstrumented but running" is the outcome the rest of this file's gating
+        code is written to guarantee. Like ``_drain_message_queue`` it runs during
+        cleanup and must therefore never raise.
+        """
+        resumed = 0
+        while True:
+            try:
+                request = self._instrument_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                self._resume_quietly(request.pid)
+                resumed += 1
+            except Exception:
+                # _resume_quietly already logs instead of propagating; this is
+                # the belt-and-braces guarantee that teardown never raises.
+                self.logger.exception("Failed to drain a queued instrument request")
+        if resumed:
+            self.logger.debug(
+                "Resumed %d gated process(es) still queued at teardown", resumed
+            )
+
+    def _stop_instrument_thread(self):
+        """Signal the instrument worker to stop, wait for it, then drain.
+
+        The drain comes strictly after the join: while the worker is still alive
+        it competes for the same queue, and anything it wins there is
+        instrumented and resumed by ``_instrument_gated_process`` anyway.
+        """
+        self._instrument_stop.set()
+        with self._instrument_thread_lock:
+            thread = self._instrument_thread
+            self._instrument_thread = None
+        if thread is not None:
+            thread.join(timeout=5)
+        self._drain_instrument_queue()
 
     def _should_instrument_spawn(self, identifier):
         """Check if a spawned process should be instrumented based on its identifier."""
@@ -1124,6 +1704,22 @@ class SSL_Logger():
         return target_name.lower() in identifier.lower()
 
 
+    def _describe_pattern_source(self):
+        """Describe where the byte patterns handed to the agent came from.
+
+        ``PatternLoader.load`` always merges ``friTap/patterns/default_patterns.json``,
+        so ``pattern_data`` is non-None on a completely ordinary run. Reporting
+        that as "pattern provided by pattern.json" implied the user had supplied
+        a file they never passed. Only ``--patterns`` (``self.patterns``) tells
+        the two cases apart.
+        """
+        if self.patterns:
+            return (
+                f"Using byte patterns from {self.patterns}, merged over "
+                "friTap's bundled default patterns, for hooking"
+            )
+        return "Using friTap's bundled default byte patterns for hooking"
+
     def instrument(self, process, own_message_handler):
         runtime = ScriptRuntime.QJS
         debug_port = 1337
@@ -1137,6 +1733,9 @@ class SSL_Logger():
         self._last_runtime = runtime
 
         script_string = self.get_agent_script()
+        # Before load, not after: a stale bundle's failures happen *during*
+        # script.load(), so the RPC-based check below it can be too late.
+        self._warn_on_stale_agent_bundle(script_string)
         if self.debug_output:
             self.logger.debug(f"loading friTap agent script: {self.agent_script}")
 
@@ -1144,33 +1743,31 @@ class SSL_Logger():
             self.logger.info(f"applying hooks at offset {self.offsets_data}")
 
         if self.pattern_data is not None:
-            self.logger.info("Using pattern provided by pattern.json for hooking")
+            self.logger.info(self._describe_pattern_source())
 
         # Build ScriptContext for plugins
-        from ..plugins.script_context import ScriptContext
         from ..plugins.script_plugin import ScriptLoadOrder
-        context = ScriptContext(
-            backend=self._backend, process=process, device=self.device,
-            runtime=runtime, event_bus=self._event_bus,
-            backend_name=self._backend.name, debug=self.debug,
-            debug_output=self.debug_output,
-        )
+        context = self._build_script_context(process, self.device, runtime)
 
         # Phase 1: BEFORE_MAIN script plugins (e.g. legacy --custom_script)
         if hasattr(self, '_plugin_loader'):
             self._plugin_loader.instrument_all(context, order=ScriptLoadOrder.BEFORE_MAIN)
 
-        self.script = self._backend.create_script(process, script_string, runtime=runtime)
+        # Keep a local handle: self.script is overwritten by the next
+        # instrument() call (gated child/spawn), and every step below must
+        # keep operating on the script it just created.
+        script = self._backend.create_script(process, script_string, runtime=runtime)
+        self.script = script
 
         if self.debug and self._backend.version_at_least(16):
-            self._backend.enable_debugger(self.script, debug_port)
+            self._backend.enable_debugger(script, debug_port)
 
         if own_message_handler is not None:
-            self._backend.on_message(self.script, self._provide_custom_hooking_handler(own_message_handler))
-            return self.script
+            self._backend.on_message(script, self._provide_custom_hooking_handler(own_message_handler))
+            return script
         else:
-            self._backend.on_message(self.script, self._internal_callback_wrapper())
-        self._backend.load_script(self.script)
+            self._backend.on_message(script, self._internal_callback_wrapper(script))
+        self._load_script_bounded(script)
 
         # Best-effort JS<->Python ABI sanity check (non-fatal; warns on a stale
         # or mismatched bundle). Only meaningful on the Frida backend.
@@ -1219,7 +1816,7 @@ class SSL_Logger():
             self._observer.schedule(event_handler, os.getcwd())
             self._observer.start()
 
-        return self.script
+        return script
 
 
     @staticmethod
@@ -1420,10 +2017,7 @@ class SSL_Logger():
             except queue.Empty:
                 continue
             try:
-                if isinstance(message, _ChildAddedSentinel):
-                    self._handle_child_added(message.child)
-                else:
-                    self.on_fritap_message(None, message, data)
+                self.on_fritap_message(None, message, data)
             except Exception as exc:
                 # Frida-side message handlers run on a dedicated thread.
                 # An uncaught exception here used to be debug-only and
@@ -1443,10 +2037,7 @@ class SSL_Logger():
             except queue.Empty:
                 break
             try:
-                if isinstance(message, _ChildAddedSentinel):
-                    pass  # Skip child gating during shutdown drain
-                else:
-                    self.on_fritap_message(None, message, data)
+                self.on_fritap_message(None, message, data)
                 drained += 1
             except Exception as exc:
                 self.logger.exception("Error draining queued frida message")
@@ -1645,14 +2236,49 @@ class SSL_Logger():
         # Wire passive analysis BEFORE instrumentation so no flows are missed.
         self._setup_live_scan()
         self._start_consumer_thread()
-        return self._session_manager.start_session(own_message_handler)
+        # Start the instrument worker before gating is enabled, so the very
+        # first child/spawn event already has a thread to run on.
+        if self.enable_child_gating or self.enable_spawn_gating or self.spawn_gating_all:
+            self._start_instrument_thread()
+        try:
+            return self._session_manager.start_session(own_message_handler)
+        except BaseException:
+            # start_session resumes a spawned target only after instrumentation
+            # succeeds, so anything that raises in between — an agent load
+            # timeout, a failed hook install, Ctrl+C during the pre-resume wait
+            # — used to leave the process suspended forever.
+            self._resume_uninstrumented_spawn()
+            raise
+
+    def _resume_uninstrumented_spawn(self) -> None:
+        """Resume a spawned target we failed to instrument.
+
+        A process we spawned stays suspended until someone resumes it. Left
+        that way it is eventually killed by the platform watchdog, and the user
+        is shown the target's own crash (``0x8badf00d`` on iOS) instead of
+        friTap's failure to instrument it — which is exactly the misattribution
+        friTap #65 was reported as. Resuming is the honest outcome: the backend
+        interface offers no kill, and a running-but-uninstrumented target is far
+        easier to reason about than a phantom crash. Say so loudly, because the
+        app will now look like it started normally.
+        """
+        if not self.spawn or self.pid is None or self.device is None:
+            return
+        self.logger.error(
+            "Instrumentation failed — resuming spawned pid %s so it is not left "
+            "suspended. It is now running WITHOUT friTap instrumentation; no "
+            "traffic will be captured from it.", self.pid
+        )
+        self._resume_quietly(self.pid)
 
     def request_stop(self):
         """Signal the capture to stop. Non-blocking, safe to call from any thread."""
         self.running = False
         self._consumer_stop.set()
+        self._instrument_stop.set()
 
     def finish_fritap(self):
+        self._stop_instrument_thread()  # no new scripts once we are tearing down
         self._stop_consumer_thread()  # drain remaining messages before PCAP close
         if self._proxy_redirector is not None:
             try:
@@ -1666,10 +2292,37 @@ class SSL_Logger():
         return handler
 
 
-    def _internal_callback_wrapper(self):
+    def _internal_callback_wrapper(self, script=None):
+        """Build the Frida on_message handler for ``script``.
+
+        ``script`` is remembered in the closure so a handshake is always
+        answered on the script that asked, even after ``instrument()`` has
+        moved ``self.script`` on to the next process.
+        """
         def wrapped_handler(message, data):
-            # Enqueue only — return from the Frida callback thread ASAP
-            # to prevent GIL contention that starves the TUI thread.
+            # The startup handshake is answered right here, on the Frida
+            # callback thread, and never enqueued. The agent blocks in
+            # recv().wait() inside script.load(), so routing the reply through
+            # the message queue would deadlock whenever the thread waiting on
+            # load() is the very thread that drains that queue — and would be
+            # dropped outright if the queue happened to be full. Handshake
+            # payloads are terminal anyway (on_fritap_message discards non-dict
+            # payloads), so returning early loses nothing.
+            if isinstance(message, dict) and message.get('type') == 'send':
+                payload = message.get('payload')
+                if isinstance(payload, str):
+                    try:
+                        if self._answer_startup_handshake(payload, script):
+                            return
+                    except Exception:
+                        # A dead script or a closed session must not take down
+                        # Frida's callback thread; the load will time out and be
+                        # reported instead.
+                        self.logger.exception("Failed to answer startup handshake")
+                        return
+
+            # Everything else: enqueue only — return from the Frida callback
+            # thread ASAP to prevent GIL contention that starves the TUI thread.
             try:
                 self._message_queue.put_nowait((message, data))
             except queue.Full:
@@ -1860,6 +2513,7 @@ class SSL_Logger():
         """Perform the actual teardown work. Always invoked via cleanup(), which
         guarantees the goodbye banner and a clean exit run afterward regardless
         of whether any step here raises."""
+        self._stop_instrument_thread()
         self._stop_consumer_thread()
 
         # Unload plugins
@@ -1972,8 +2626,31 @@ class SSL_Logger():
                     "https://github.com/fkie-cad/friTap/issues"
                 )
 
+    # How long the host waits for the agent's platform report before declaring
+    # probe mode unsupported. The report is sent from the agent's top level, so
+    # it is normally already queued when instrumentation returns; 3s only covers
+    # the consumer thread getting round to routing it.
+    PROBE_REPORT_TIMEOUT = 3.0
+    # Non-zero exit used when the loaded bundle never acknowledged probe mode.
+    PROBE_EXIT_BUNDLE_UNSUPPORTED = 2
+
     def wait_for_completion(self):
         """Block until the session ends. Responds to KeyboardInterrupt."""
+        # A probe run has nothing to wait for: the agent installed no hooks, so
+        # no keys, packets or plaintext will ever arrive. Terminating HERE is the
+        # least invasive choice available:
+        #   * start_fritap_session() returns (process, script) to other callers
+        #     (e.g. the LSASS helper session in friTap.py), so a bail-out there
+        #     would change a shared return contract;
+        #   * friTap.py would have to learn probe-mode policy that belongs to the
+        #     logger, and the TUI path calls neither place the same way;
+        #   * this method already owns the process's final exit for the normal
+        #     path (os._exit below) and is the only blocking step after
+        #     instrumentation, so returning early here keeps every non-probe
+        #     code path byte-for-byte unchanged.
+        if self.probe:
+            self._finish_probe_run()
+            return
         while not self._done_event.wait(timeout=0.5):
             pass
         # _done_event is set by _run_cleanup_steps AFTER pcap/keys are flushed.
@@ -1987,6 +2664,90 @@ class SSL_Logger():
         # cleanup() guard), so skip there.
         if not self._tui_mode:
             os._exit(0)
+
+    def _finish_probe_run(self) -> None:
+        """Complete a --probe dry run: verdict, teardown, exit.
+
+        The verdict IS the result of the run, so this owns the process exit the
+        same way the normal path does: 0 once the agent acknowledged probe mode,
+        ``PROBE_EXIT_BUNDLE_UNSUPPORTED`` otherwise.
+        """
+        acknowledged = (
+            self.wait_for_platform_report(self.PROBE_REPORT_TIMEOUT)
+            and self._platform_report is not None
+            # The agent echoes `probe` back precisely so we can tell a
+            # probe-aware bundle from one that merely reports its platform.
+            and self._platform_report.probe
+        )
+        if acknowledged:
+            # The one-line platform summary was already logged (unconditionally)
+            # by _on_platform_report; only the verdict is left to say.
+            self.special_logger.info(
+                "Probe complete — no hooks were installed and no data was captured."
+            )
+            exit_code = 0
+        else:
+            for line in self._probe_unsupported_bundle_lines():
+                self.logger.error(line)
+            exit_code = self.PROBE_EXIT_BUNDLE_UNSUPPORTED
+        self._shutdown_after_probe(exit_code)
+
+    def _probe_unsupported_bundle_lines(self) -> "list[str]":
+        """Return the error lines for a bundle that never acknowledged --probe.
+
+        Pure with respect to the session (reads state, logs nothing) so the
+        wording stays testable.
+
+        This is a hard failure rather than a warning because a diagnostic that
+        can silently lie is worse than no diagnostic: a bundle predating probe
+        mode ignores the ``probe`` config field, installs every hook as usual and
+        reports nothing back — the user would watch the target crash (or survive)
+        and conclude that probe mode had cleared it. Name the bundle that was
+        actually loaded, because a stale bundle next to a rebuilt checkout is the
+        single most likely cause.
+        """
+        try:
+            bundle = self._resolve_agent_bundle_path()
+        except Exception:
+            bundle = getattr(self, "agent_script", "<unknown>")
+        lines = [
+            "--probe failed: the loaded agent bundle does not implement probe mode."
+        ]
+        if self._platform_report is None:
+            lines.append("  The agent never sent a platform report.")
+        else:
+            lines.append(
+                "  The agent reported platform '%s' but did not acknowledge probe "
+                "mode, so it installed its hooks as usual."
+                % (self._platform_report.platform or "unknown",)
+            )
+        lines.append(f"  Loaded bundle: {bundle}")
+        lines.append(
+            "  -> Rebuild the agent bundle with ./dev/compile_agent.sh, then re-run --probe."
+        )
+        lines.append(
+            "  Treat this run as a NORMAL instrumented run: hooks may well have "
+            "been installed, so it proves nothing about probe mode."
+        )
+        return lines
+
+    def _shutdown_after_probe(self, exit_code: int) -> None:
+        """Tear the probe session down and exit with *exit_code*.
+
+        Probe mode writes no pcap/keylog, so the full cleanup() pipeline has
+        nothing to flush — stopping the worker threads and unloading the script
+        (finish_fritap) is the entire teardown. Guarded so a wedged detach can
+        never swallow the verdict; skipped under the TUI, which owns its own
+        lifecycle exactly as cleanup()/wait_for_completion do.
+        """
+        try:
+            self.request_stop()
+            self.finish_fritap()
+        except Exception as err:
+            self.logger.debug("Probe teardown error (ignored): %s", err)
+        self._done_event.set()
+        if not self._tui_mode:
+            os._exit(exit_code)
 
     def _resolve_agent_bundle_path(self):
         """Resolve the agent bundle path to load (Frida backend).
@@ -2039,10 +2800,15 @@ class SSL_Logger():
                 continue
             abi = getattr(obj, "AGENT_ABI_VERSION", None)
             if abi != AGENT_ABI_VERSION:
-                if self.debug_output or self.debug:
-                    self.logger.debug(
-                        "agent bundle entry point %r ABI %s != host %s; skipping",
-                        ep.name, abi, AGENT_ABI_VERSION)
+                # Warn rather than debug: an ABI bump makes this skip far more
+                # likely, and a private/extended bundle silently dropping out
+                # looks exactly like "my extra hooks stopped working" with no
+                # clue as to why. The user needs the version pair to act on it.
+                self.logger.warning(
+                    "Agent bundle entry point %r declares ABI %s but this friTap "
+                    "expects ABI %s — skipping it and falling back to the bundled "
+                    "agent. Update that package to a build matching this friTap.",
+                    ep.name, abi, AGENT_ABI_VERSION)
                 continue
             getter = getattr(obj, "agent_bundle_path", None)
             path = getter() if callable(getter) else getattr(obj, "AGENT_BUNDLE_PATH", None)
@@ -2080,6 +2846,47 @@ class SSL_Logger():
                 "bundle may be stale or built against a different JS<->Python "
                 "boundary; rebuild the agent (./dev/compile_agent.sh) if hooks "
                 "misbehave.", bundle_abi, AGENT_ABI_VERSION)
+
+    # Matches the ABI constant as it appears in the compiled bundle, which
+    # frida-compile emits as `AGENT_ABI_VERSION = <n>` (or `=<n>`) from
+    # agent/shared/generated_constants.ts.
+    _AGENT_ABI_PATTERN = re.compile(r"AGENT_ABI_VERSION\s*=\s*(\d+)")
+
+    @staticmethod
+    def _check_agent_abi_static(source: str):
+        """Read the ABI out of the bundle *source*, before it is loaded.
+
+        Returns the bundle's ABI, or ``None`` when it cannot be determined.
+
+        The RPC-based ``_check_agent_abi`` can only run once the script has
+        loaded — which is too late for the failure it is meant to catch: a stale
+        bundle's whole problem is what it does *during* load. Reading the
+        constant out of the text costs nothing and lets the mismatch be reported
+        before the agent touches the target at all.
+
+        Deliberately non-fatal: a standalone or hand-built bundle may not carry
+        the constant, and refusing to run would be worse than a warning.
+        """
+        if not isinstance(source, str):
+            return None
+        match = SSL_Logger._AGENT_ABI_PATTERN.search(source)
+        return int(match.group(1)) if match else None
+
+    def _warn_on_stale_agent_bundle(self, source: str) -> None:
+        """Warn when the bundle about to be loaded was built for another ABI."""
+        bundle_abi = self._check_agent_abi_static(source)
+        if bundle_abi is None:
+            if self.debug_output or self.debug:
+                self.logger.debug(
+                    "agent bundle declares no ABI constant; skipping the static check")
+            return
+        if bundle_abi != AGENT_ABI_VERSION:
+            self.logger.warning(
+                "Agent bundle at %s was built for ABI %s but this friTap expects "
+                "ABI %s. The bundle is pre-compiled — nothing rebuilds it at run "
+                "time — so rebuild it with ./dev/compile_agent.sh before trusting "
+                "this run.", self._resolve_agent_bundle_path(), bundle_abi,
+                AGENT_ABI_VERSION)
 
     def get_agent_script(self):
         with open(self._resolve_agent_bundle_path(), encoding='utf-8', newline='\n') as f:
@@ -2142,27 +2949,6 @@ class SSL_Logger():
             }
             with self._session_data_lock:
                 self.session_data["ssl_sessions"].append(session_entry)
-
-    def add_library_detection(self, library_name, library_path):
-        """Add detected SSL library information to JSON output"""
-        self._event_bus.emit(LibraryDetectedEvent(
-            library=library_name,
-            path=library_path,
-        ))
-        if self.json_output:
-            library_info = {
-                "name": library_name,
-                "path": library_path,
-                "detected_at": datetime.now(timezone.utc).isoformat()
-            }
-            with self._session_data_lock:
-                existing = self.session_data["statistics"]["libraries_detected"]
-                already_known = any(
-                    entry["name"] == library_name and entry["path"] == library_path
-                    for entry in existing
-                )
-                if not already_known:
-                    existing.append(library_info)
 
     def write_socket_trace(self, socket_trace_name):
         with open(socket_trace_name, 'a') as trace_file:

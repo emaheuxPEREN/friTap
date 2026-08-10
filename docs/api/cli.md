@@ -156,6 +156,39 @@ the PCAP name with `-p`.
 fritap -f -k keys.log -p traffic.pcap target
 ```
 
+!!! warning "`--full_capture` requires `-p`"
+    `-f` on its own is rejected by the argument parser: friTap prints
+    `Error: --full_capture requires -p to set the pcap name`, dumps the help
+    text, and exits **without capturing anything**. Always pair `-f` with
+    `-p <path>`.
+
+#### `--owner-capture, -oc`
+**Android/Linux, rooted.** Scope the full packet capture (`-f`) to **only** the
+target app's traffic using its Linux UID, via the **AppTap** library. friTap picks
+an in-kernel **NFLOG** pre-filter where the kernel supports it, otherwise a kernel
+socket-table (**SOCK_DIAG**) filter — both app-precise and independent of the
+Frida socket trace. Requires `-f` and root; falls back to the legacy whole-device
+capture when AppTap or kernel support is unavailable.
+
+`--owner-capture` **implies** `-f`: friTap enables full capture for you and logs
+`--owner-capture implies a full capture; enabling -f/--full_capture.`
+
+```bash
+fritap -m -oc -p traffic.pcap -k keys.log com.example.app
+```
+
+#### `--owner-strict`
+With `--owner-capture`: scope to the app's **base UID only** — exclude
+isolated/WebView child UIDs *and* the DNS resolver UID.
+
+#### `--owner-no-dns`
+With `--owner-capture`: include isolated/WebView child UIDs but **not** the DNS
+resolver UID.
+
+#### `--nflog-group <N>`
+With `--owner-capture`: NFLOG group used for the Tier-2 in-kernel capture.
+**Default `30`.** Change it only if group 30 is already claimed on the device.
+
 #### `-j, --json <path>`
 Save session metadata and analysis results in JSON format.
 
@@ -211,6 +244,27 @@ script.load()
 script.post({"type": "writemod", "payload": new_payload})
 ```
 
+#### `--scan-keys-region <module|base,size|heap>`
+Scan a memory region for cryptographic key material with the generic key-scan
+engine and emit ranked, anonymous candidates to the keylog. **Requires `-k`.**
+The value is one of:
+
+| Value form | Meaning |
+| --- | --- |
+| `<module>` | A module name, e.g. `libfoo.so` |
+| `0xADDR,SIZE` | An explicit region, e.g. `0x7f1234000,0x40000` |
+| `heap` | All writable ranges |
+
+```bash
+fritap -m -k keys.log --scan-keys-region libfoo.so com.example.app
+```
+
+!!! note "This is a scan — expect a slower load"
+    A key-region scan runs **inside** the agent's startup, so it extends
+    `script.load()`. friTap automatically triples
+    [`--script-load-timeout`](#-script-load-timeout-seconds) when this flag is
+    active.
+
 ---
 
 ### Hooking and libraries
@@ -264,6 +318,31 @@ Unity build). Full guide: [PairIP-Protected Apps](../advanced/pairip-safe.md).
 fritap -m -k keys.log --pairip-safe -v com.example.app
 ```
 
+#### `--no-loader-hook, -nlh`
+**Android only.** Do **not** install the `android_dlopen_ext` loader hook. Avoids
+PairIP / anti-tamper `SIGSEGV` crashes ([fkie-cad/friTap#64](https://github.com/fkie-cad/friTap/issues/64));
+only already-loaded or explicitly selected (`--offsets`) TLS libraries are hooked.
+Recommended together with **attach** mode (no `-s`).
+
+friTap also **auto-skips** this hook in spawn mode when it detects a known
+anti-tamper library such as Google PairIP (`libpairipcore.so`).
+
+```bash
+fritap -m -nlh -k keys.log com.example.app
+```
+
+#### `--experimental-stealth-loader`
+**EXPERIMENTAL. Android, arm64.** Watch `android_dlopen_ext` via a **hardware
+breakpoint** (CPU debug registers — no linker code patch) instead of the inline
+trampoline, so late-loaded TLS libraries can still be hooked on PairIP-protected
+apps without tripping the anti-tamper scan
+([fkie-cad/friTap#64](https://github.com/fkie-cad/friTap/issues/64)).
+
+!!! warning "Unvalidated on-device"
+    Needs a root frida-server and may not catch loads on threads created after
+    attach. Prefer `--no-loader-hook` or `--pairip-safe` unless you are
+    specifically testing this path.
+
 #### `-ll, --list-libraries`
 List the loaded libraries (and TLS/SSL-related exports) to help debug hooking,
 then exit **without** starting capture.
@@ -272,12 +351,22 @@ then exit **without** starting capture.
 fritap -m --list-libraries com.example.app
 ```
 
+Exits `0` once the listing is printed, or `2` if the inspection failed (look for
+the `Error:` line). It scans every loaded module and prints nothing until that
+finishes — a silent terminal here is the scan working, not a hang. On macOS that
+is now ~1-2s; it stays proportional to module count and pattern set, so
+`--scan-all-modules`, or an Android target with a few hundred modules, takes
+correspondingly longer.
+
 #### `--extract-libraries <dir>`
 Extract detected TLS libraries to the given directory, then exit.
 
 ```bash
 fritap --extract-libraries ./libs com.example.app
 ```
+
+Exits `0` when libraries were written, `2` if the extraction failed. Same scan
+cost as `-ll` above.
 
 #### `--force-scan <module>`
 Force the BoringSSL pattern scan to run on the given module even if friTap thinks
@@ -318,8 +407,14 @@ Linux = Cloudflare quiche, Google QUICHE (Cronet), Mozilla Neqo (Firefox).
 
 ### Protocol and backend
 
-#### `--protocol {tls,ipsec,ssh,all,auto}`
+#### `--protocol <name>`
 Protocol to intercept. **Default `tls`**.
+
+The accepted values are **not a fixed list** — they are every *registered*
+protocol name plus `all` and `auto`, so the set grows with the protocol registry
+(and with installed protocol plugins). Run `fritap --help` for the exact set your
+build accepts; at the time of writing it is
+`{mtproto, signal, ssh, telegram, tls, all, auto}`.
 
 - `tls` covers the **TLS family** — TLS, QUIC, and **OHTTP**. There is no
   separate `--protocol ohttp` / `--ohttp` flag; OHTTP is on by default within
@@ -449,6 +544,99 @@ fritap --proxy 127.0.0.1:8080 -m com.example.app
 
 ---
 
+### Diagnostics
+
+Use these when friTap itself misbehaves — the target dies, or the agent never
+finishes loading.
+
+#### `--probe`
+**Dry run.** Load the friTap agent, report which platform friTap detected and
+which platform code path it selected, then **exit without installing any TLS
+hooks**. No keys, pcap or plaintext are produced.
+
+Its purpose is diagnosing targets that die during instrumentation
+([fkie-cad/friTap#65](https://github.com/fkie-cad/friTap/issues/65)): **if the
+target survives `--probe`, the agent loaded fine and the crash is in hook
+installation** — not in agent bootstrap, the Frida attach, or the config
+handshake.
+
+```bash
+fritap -m --probe com.example.app
+fritap --probe -s firefox
+```
+
+friTap logs the agent's own answer, e.g.:
+
+```
+Agent platform report: android/arm64 (target=com.example.app, agent ABI 2)
+Probe complete — no hooks were installed and no data was captured.
+```
+
+!!! danger "`--probe` exits with code `2` if the bundle does not acknowledge it"
+    Probe mode is a property of the **agent bundle**, not just the CLI. An older
+    bundle would silently ignore `probe` and instrument the target normally, so
+    friTap refuses to let the diagnostic lie: if no platform report arrives, or
+    the report does not have `probe` set, friTap logs
+
+    ```
+    --probe failed: the loaded agent bundle does not implement probe mode.
+      -> Rebuild the agent bundle with ./dev/compile_agent.sh, then re-run --probe.
+      Treat this run as a NORMAL instrumented run: hooks may well have been
+      installed, so it proves nothing about probe mode.
+    ```
+
+    and exits **`2`**. See
+    [I edited `agent/*.ts` and nothing changed](../troubleshooting/common-issues.md#i-edited-agentts-and-nothing-changed-the-rebuild-rule).
+
+Combining `--probe` with a capture flag is a **warning**, not an error — the
+capture flags are simply ignored:
+
+```
+--probe is a dry run: friTap installs no hooks, so these flags produce no data
+and are ignored: -k/--keylog, -p/--pcap.
+  -> Re-run the same command without --probe once the probe report looks healthy.
+```
+
+The flags that trigger that warning are `-k/--keylog`, `-p/--pcap`,
+`-f/--full_capture`, `--live` and `-j/--json`.
+
+!!! note "Probe mode means \"no *TLS* hooks\", not \"zero target mutation\""
+    Two things still touch the target under `--probe`:
+
+    - **`-c/--custom_script` hooks are still installed.** Custom scripts are
+      loaded as a separate plugin script before the main agent, and probe mode
+      does not gate them. Drop `-c` for a clean probe.
+    - **On Android**, the bundle's `frida-java-bridge` initialises during
+      `script.load()`, which installs a hook before `probe` is even read.
+
+    So a target that dies under `--probe` has still not been cleared of
+    friTap — it has been cleared of friTap's *TLS hook installation*.
+
+#### `--script-load-timeout <seconds>`
+Upper bound on loading the agent into the target — Frida's `script.load()`, which
+blocks until the agent finishes its startup handshake. Exceeding it aborts with a
+diagnostic instead of hanging forever. **Default `20.0`.**
+
+- **Any non-positive value disables the bound** (`--script-load-timeout 0`).
+- The value is automatically **tripled** when `--patterns`, `--library-scan` or
+  `--scan-keys-region` is active, because those run memory scans *inside* the
+  load.
+- It is **not** applied to plugin scripts or `-c/--custom_script`; only the main
+  agent load is bounded.
+
+```bash
+fritap --script-load-timeout 60 -m -k keys.log com.example.app
+fritap --script-load-timeout 0  -m -k keys.log com.example.app   # no bound
+```
+
+!!! warning "This is a give-up, not a cancellation"
+    Frida's `script.load()` **cannot be cancelled**. When the bound expires
+    friTap abandons the load thread and reports the timeout — but the agent may
+    still finish loading inside the target afterwards. Treat a timeout as
+    "friTap stopped waiting", not "the agent was stopped".
+
+---
+
 ### Debug
 
 friTap has **three distinct** debug flags. Choose based on what you need:
@@ -457,24 +645,36 @@ friTap has **three distinct** debug flags. Choose based on what you need:
 Full debug mode: debug output **plus** a listening Chrome Inspector server for
 remote debugging of the agent (Chrome DevTools).
 
-#### `-do, --debugoutput`
+#### `-do, --debug-output`
 Debug output **only** (no Chrome Inspector server). Use this for verbose
 diagnostics when you do not need a live debugger.
+
+!!! note "`-do` writes a log file into the current directory"
+    Passing `-do` silently creates `./fritap_debug_<ts>_<pid>.log` in the CWD.
+    Use `--debug-log <path>` to put it somewhere you choose (or set the
+    `FRITAP_DEBUG_LOG` env var).
 
 #### `--debug-log <path>`
 Write the friTap debug log to `<path>` (default
 `./fritap_debug_<ts>_<pid>.log`). Captures session-level errors, warnings, and
 uncaught exceptions even in non-TUI mode. This is orthogonal to `-d`/`-do` — it
-controls **where** the log goes, not the verbosity tier.
+controls **where** the log goes, not the verbosity tier. Also honored via the
+`FRITAP_DEBUG_LOG` env var.
 
 #### `-v, --verbose`
 Show verbose output (not a debug flag; safe for everyday use).
 
 ```bash
-fritap -do -v target 2>&1 | tee debug.log     # verbose diagnostics to a file
-fritap -d -k keys.log target                   # attach Chrome DevTools
-fritap --debug-log ./run.log -v target         # persist session-level log
+fritap -do -v --debug-log ./debug.log target    # verbose diagnostics to a file
+fritap -d -k keys.log target                    # attach Chrome DevTools
+fritap --debug-log ./run.log -v target          # persist session-level log
 ```
+
+!!! tip "Prefer `--debug-log` over piping friTap into `head` or `grep`"
+    friTap's output goes to **stderr**, so `fritap ... | grep ...` filters an
+    empty stream unless you add `2>&1`. Use `--debug-log <path>` and grep the
+    file afterwards — it is written by friTap itself and also captures the crash
+    reports it collects.
 
 ---
 
@@ -495,6 +695,48 @@ Activate all existing experimental features. See the relevant feature docs.
 
 #### `--version`
 Print the program's version number and exit.
+
+---
+
+## Platform caveats
+
+The flags above are cross-platform, but three Apple-specific constraints change
+what a given command can actually do.
+
+### macOS: SIP normally has to be off
+
+Attaching to *another* local process on macOS normally requires **System
+Integrity Protection to be disabled** (`csrutil status` reports it). Without it,
+Frida cannot get a task port for the target, so `fritap -k keys.log <app>` fails
+at attach — regardless of `sudo`. Code signing matters too: a target with the
+hardened runtime, library validation, or without
+`com.apple.security.cs.get-task-allow` will refuse injection even with SIP off.
+
+Full detail: [macOS platform guide](../platforms/macos.md).
+
+### iOS: jailbreak required
+
+Every `-m`/`-H` iOS flow needs a **jailbroken device** with a running
+frida-server. There is no non-jailbroken path (and no `--anti_jailbreak` flag —
+see [Common issues](../troubleshooting/common-issues.md)).
+
+Full detail: [iOS platform guide](../platforms/ios.md).
+
+### Apple BoringSSL: `-p/--pcap` produces an empty pcap
+
+On **Apple BoringSSL** targets (macOS and iOS), friTap's capture is
+**keys-only**: `-p/--pcap` writes a valid but **empty** pcap file, because no
+plaintext read/write hooks are installed on that path. Use `-k/--keylog` and
+decrypt an externally captured pcap (e.g. `tcpdump` + Wireshark, or
+[`--from-pcap`](#-from-pcap-offline-pcap-tap-conversion)).
+
+```bash
+# Apple BoringSSL: keys only
+fritap -k keys.log -s /Applications/Example.app/Contents/MacOS/Example
+```
+
+See [BoringSSL](../libraries/boringssl.md),
+[macOS](../platforms/macos.md) and [iOS](../platforms/ios.md).
 
 ---
 
@@ -648,6 +890,7 @@ fritap -m -p log.pcap --enable_default_fd com.example.app
 | Mode | Codes |
 |------|-------|
 | Live capture | `0` success · `1` general error · `2` invalid arguments/configuration · additional Frida-specific codes |
+| `--probe` | `0` probe completed (agent loaded, no hooks installed) · `2` the loaded agent bundle does not implement probe mode |
 | `analyze` / `--analyze` | `0` success · `2` finding at/above gate severity (medium) · `1` usage/IO error |
 | `--from-pcap` | `0` success · `2` pcap not found · `3` tshark missing · `4` no decrypted packets · `5` no decryption keys · `1` other failure |
 
@@ -662,4 +905,3 @@ fritap -m -p log.pcap --enable_default_fd com.example.app
 - **Interactive TUI**: [TUI](../getting-started/tui.md)
 - **Examples**: [Usage examples](../examples/index.md)
 - **Troubleshooting**: [Common issues](../troubleshooting/common-issues.md)
-```

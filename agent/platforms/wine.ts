@@ -22,7 +22,6 @@ import { nss_execute_modern as nss_execute_modern_windows } from "../tls/platfor
 import { wolfssl_execute_modern as wolfssl_execute_modern_windows } from "../tls/platforms/windows/wolfssl_windows.js";
 
 var platform_name: Platform = PLATFORM_WINE;
-var moduleNames: Array<string> = getModuleNames();
 
 // Wine uses Linux sockets (libc), not Windows sockets (WS2_32.dll)
 export const socket_library = "libc";

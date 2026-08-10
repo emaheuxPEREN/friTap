@@ -49,6 +49,16 @@ export function isLDRimmU64(insn: number): boolean {
     return maskEq(insn, 0xffc00000, 0xf9400000);
 }
 
+/** STR (immediate, unsigned offset, 64-bit): STR Xt, [Xn, #imm12*8]. */
+export function isSTRimmU64(insn: number): boolean {
+    return maskEq(insn, 0xffc00000, 0xf9000000);
+}
+
+/** RET (to x30) — the exact word; no mask needed. */
+export function isRET(insn: number): boolean {
+    return (insn >>> 0) === 0xd65f03c0;
+}
+
 /** BL (direct, PC-relative call). */
 export function isBL(insn: number): boolean {
     return maskEq(insn, 0xfc000000, 0x94000000);
@@ -112,6 +122,15 @@ export function decodeADDImm12(insn: number): number {
 /** LDR (unsigned offset, 64-bit) byte displacement: imm12 scaled by 8. */
 export function decodeLDRU64Imm(insn: number): number {
     return ((insn >>> 10) & 0xfff) * 8;
+}
+
+/**
+ * STR (unsigned offset, 64-bit) byte displacement. The imm12 field sits in the
+ * same bits and uses the same scaling as the LDR form, so this delegates — it
+ * exists so call sites read as what they decode.
+ */
+export function decodeSTRU64Imm(insn: number): number {
+    return decodeLDRU64Imm(insn);
 }
 
 /** BL byte offset, SIGNED: imm26 sign-extended then << 2. */

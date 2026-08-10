@@ -5,6 +5,7 @@ import { devlog, devlog_error, log, devlog_info } from "../../util/log.js";
 import { initializePipeline as sharedInitializePipeline, resolveWithPipelineAsync as sharedResolveWithPipelineAsync } from "../../shared/pipeline_utils.js";
 import { ObjC } from "../../shared/objclib.js";
 import { sendKeylog, sendDatalog } from "../../shared/shared_structures.js";
+import { readKeylogLine, isNssKeylogLine } from "../shared/keylog_line.js";
 
 class ModifyReceiver{
     public readModification: ArrayBuffer | null = null;
@@ -124,7 +125,23 @@ export class OpenSSL_BoringSSL {
 
         this.keylog_callback = new NativeCallback(function (ctxPtr: NativePointer, linePtr: NativePointer) {
             devlog("invoking keylog_callback from OpenSSL_BoringSSL ("+ moduleName +")");
-            sendKeylog(linePtr.readCString().toUpperCase());
+            // Validate before dereferencing. On Apple platforms this callback is
+            // installed by writing it into the SSL_CTX struct at a version-keyed
+            // offset (see agent/legacy/tls/shared/apple_keylog_offset.ts). If that
+            // offset is wrong the pointer can land on a DIFFERENT callback field —
+            // e.g. info_callback, whose signature is (SSL*, int, int) — and then
+            // `linePtr` holds a small integer rather than an address. Reading a
+            // C string from it would SIGSEGV and take the whole target down, and a
+            // JS try/catch cannot save a native fault. readKeylogLine() range-checks
+            // first and returns null instead.
+            const line = readKeylogLine(linePtr);
+            if (line === null) return;
+            if (!isNssKeylogLine(line)) {
+                devlog_error("keylog_callback received a non-keylog payload from " + moduleName +
+                    " — the installed callback is likely wired to the wrong SSL_CTX field; dropping it");
+                return;
+            }
+            sendKeylog(line.toUpperCase());
         }, "void", ["pointer", "pointer"]);
 
         // Check and add SSL_write_ex if available

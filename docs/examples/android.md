@@ -124,8 +124,8 @@ fritap -m --patterns android_patterns.json -k keys.log --json pattern_analysis.j
 # Debug pattern matching
 fritap -m -do -v --patterns android_patterns.json com.example.app
 
-# Check detected libraries
-cat pattern_analysis.json | jq '.statistics.libraries_detected'
+# Check detected libraries (top-level array, NOT under .statistics)
+jq '.libraries_detected' pattern_analysis.json
 ```
 
 ### Anti-Root Detection Bypass
@@ -187,7 +187,7 @@ Most modern Android apps use BoringSSL:
 fritap -m -k boringssl_keys.log com.example.app
 
 # Debug BoringSSL detection
-fritap -m -do -v com.example.app | grep -i boring
+fritap -m -do -v com.example.app 2>&1 | grep -i boring
 ```
 
 
@@ -257,8 +257,15 @@ tcpdump -r api_traffic.pcap -A | grep -E "(GET|POST|PUT|DELETE)" | head -20
 tcpdump -r api_traffic.pcap -A | grep -i authorization
 
 # Get API statistics from JSON
-cat api_analysis.json | jq '.statistics.total_connections, .connections | length'
+jq '.statistics.total_connections, (.connections | length)' api_analysis.json
 ```
+
+!!! note "What the counters actually count"
+    `.statistics.total_connections` counts **plaintext records**, not distinct
+    connections, and `.statistics.total_bytes_captured` sums their lengths. Both
+    stay `0` in a keys-only run (`-k` without `-p`), because friTap then installs
+    no plaintext hooks at all. Note also that `libraries_detected` sits at the
+    **top level**, not under `.statistics`.
 
 ### Malware Analysis
 
@@ -293,7 +300,7 @@ fritap -m --anti_root -k keys.log com.example.app
 **No SSL Library Detected:**
 ```bash
 # Debug library detection
-fritap -m -do -v com.example.app | grep -i ssl
+fritap -m -do -v com.example.app 2>&1 | grep -i ssl
 
 # List loaded libraries
 fritap -m --list-libraries com.example.app

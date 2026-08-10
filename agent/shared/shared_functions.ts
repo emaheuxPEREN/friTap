@@ -8,6 +8,7 @@ import { announceSiblingCoverage, isModuleHooked, markModuleHooked } from "./lib
 import { isDeepSymbolResolutionEnabled } from "./deep_symbol_resolution.js";
 import { warnAntiTamper } from "../util/anti_tamper.js";
 import { watchFunctionEntries } from "../util/hw_breakpoint.js";
+import { isReadable, resetReadableCache } from "../util/safe_memory.js";
 // Pure sockaddr/PRNetAddr decoders live in sockaddr.ts so they can be unit-tested
 // under Node without this module's heavy Frida import graph. Imported for internal
 // use (getPortsAndAddresses) and re-exported below for existing importers.
@@ -557,10 +558,17 @@ export function readAddresses(moduleName: string, library_method_mapping: { [key
     // heap-write keylog callback can install instead of the .text code patch.
     if (exportMissesForModule.length > 0 && isDeepSymbolResolutionEnabled(moduleName)) {
         const fromSymtab = findNonExportedSymbols(moduleName, exportMissesForModule);
+        resetReadableCache();   // mapped ranges can have changed since any earlier walk
         for (const [name, addr] of fromSymtab) {
-            if (addr && !addr.isNull()) {
+            // Range-check before recording: enumerateSymbols() can hand back addresses
+            // that are not mapped (it reports undefined imports at 0x0, for instance),
+            // and every address recorded here is later CALLED via NativeFunction — a
+            // native fault that no JS try/catch can recover.
+            if (addr && !addr.isNull() && isReadable(addr, 1)) {
                 devlog(`[readAddresses] Resolved ${name} via symbol-table fallback: ${addr}`);
                 addresses[moduleName][name] = addr;
+            } else if (addr && !addr.isNull()) {
+                devlog(`[readAddresses] Rejected ${name} from symbol-table fallback: ${addr} is not mapped`);
             }
         }
     }
@@ -935,4 +943,47 @@ export function calculateZeroBytePercentage(hexStr: string): number {
     }
 
     return Math.round((zeroCount / totalBytes) * 100);
+}
+
+/** One named hook-installation step for runInstallPhases(). */
+export interface InstallPhase {
+    label: string;
+    fn: () => void;
+}
+
+/**
+ * Run hook-installation phases with per-phase containment and a setTimeout(0)
+ * yield between them.
+ *
+ * Three properties, each learned the hard way:
+ *  - CONTAINMENT: a phase that throws is logged and skipped, so one failing
+ *    library cannot cost the user every later hook (previously a single throw
+ *    inside load_*_hooking_agent() abandoned the rest of the install).
+ *  - ATTRIBUTION: a breadcrumb is emitted before each phase, so when the target
+ *    dies NATIVELY — no JS exception for Frida to report — the host's crash
+ *    message can still name the phase (fkie-cad/friTap#65).
+ *  - YIELDING: each yield releases the Frida runtime so the target's own threads
+ *    make progress between bursts of Interceptor.attach work, which is what keeps
+ *    an attach to a busy process from stalling it.
+ *
+ * `runFirstSync` keeps phase 0 inside script.load(), so the base TLS hooks are
+ * live before the host resumes a spawned process. Pass false to dispatch every
+ * phase on a later tick (the pre-existing Android/Linux behaviour).
+ */
+export function runInstallPhases(platformLabel: string, phases: InstallPhase[], runFirstSync: boolean = true): void {
+    const run = (i: number) => {
+        if (i >= phases.length) return;
+        hookBreadcrumb(`install-phase: ${platformLabel}/${phases[i].label}`);
+        try {
+            phases[i].fn();
+        } catch (e) {
+            devlog(`[${platformLabel}] install phase ${phases[i].label} threw: ${e}`);
+        }
+        setTimeout(() => run(i + 1), 0);
+    };
+    if (runFirstSync) {
+        run(0);
+    } else {
+        setTimeout(() => run(0), 0);
+    }
 }

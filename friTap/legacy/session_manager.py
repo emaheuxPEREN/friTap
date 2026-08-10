@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ..backends.base import BackendName
+from ..spawn_target import resolve_spawn_target
 
 if TYPE_CHECKING:
     from .ssl_logger_core import SSL_Logger
@@ -88,24 +89,38 @@ class SessionManager:
             logger._backend.on_spawn_added(logger.device, logger.on_spawn_added)
         if logger.spawn:
             self._logger.info(f"spawning {logger.target_app}")
-            if logger.mobile or logger.host:
+            # device_id belongs here too: a session picked by device ID (TUI
+            # device enumeration, see above) is a REMOTE device, and the local
+            # filesystem probe in resolve_spawn_target would otherwise test the
+            # host's paths for a target that only exists on that device.
+            if logger.mobile or logger.host or logger.device_id:
                 pid = logger._backend.spawn_raw(logger.device, logger.target_app)
             else:
                 used_env = {}
                 if logger.environment_file:
                     with open(logger.environment_file) as json_env_file:
                         used_env = json.load(json_env_file)
-                # Prefer the original argv tokens (preserves paths with spaces,
-                # e.g. ".../Program Files/app.exe"); fall back to splitting the
-                # joined target string for programmatic / TUI configs that don't
-                # supply argv. spawn_raw passes a list straight to device.spawn().
-                spawn_target = logger.target_argv or logger.target_app.split(" ")
+                # A single argv token containing whitespace is ambiguous: it is
+                # either one executable whose path has spaces or a command with
+                # arguments that the shell collapsed. resolve_spawn_target picks
+                # via a local filesystem probe and logs which reading it chose
+                # -- valid only here, where the device is genuinely local
+                # (mobile, host and device_id all take the branch above).
+                # spawn_raw passes the list straight to device.spawn().
+                spawn_target = resolve_spawn_target(
+                    logger.target_argv, logger.target_app, self._logger
+                )
                 pid = logger._backend.spawn_raw(logger.device, spawn_target, env=used_env)
                 time.sleep(1)
             logger.pid = pid
             logger.process = logger._backend.attach(logger.device, str(pid))
         else:
             logger.process = logger._backend.attach(logger.device, logger.target_app)
+            # Record the attached pid: 'process-crashed' is a device-WIDE signal
+            # and on_process_crashed only filters it by comparing pids, so
+            # without logger.pid the filter degrades to accept-anything and an
+            # unrelated app's crash would be reported as our target's.
+            logger.pid = getattr(logger.process, "pid", None)
             if logger.timeout:
                 logger.target_threads = logger._backend.enumerate_threads(logger.process)
                 if logger.target_threads:
@@ -128,8 +143,9 @@ class SessionManager:
             with open(logger._agent_script_path, 'r') as f:
                 script_source = f.read()
             script = logger._backend.create_script(logger.process, script_source)
-            logger._backend.on_message(script, logger._internal_callback_wrapper())
-            logger._backend.load_script(script)
+            logger.script = script  # so a handshake arriving during load has a reply target
+            logger._backend.on_message(script, logger._internal_callback_wrapper(script))
+            logger._load_script_bounded(script)
             logger.script = script
         else:
             script = logger.instrument(logger.process, own_message_handler)
@@ -149,13 +165,17 @@ class SessionManager:
             self._logger.info(f'Logging keylog file to {logger.keylog}')
 
         logger._backend.on_detached(logger.process, logger.on_detach)
-        if logger.spawn:
-            # Capture a full native crash report for a spawned target that dies
-            # during instrumented startup (frida's Crash carries the backtrace).
-            try:
-                logger._backend.on_process_crashed(logger.device, logger.on_process_crashed)
-            except Exception:
-                self._logger.debug("on_process_crashed registration failed", exc_info=True)
+        # Capture a full native crash report for a target that dies while
+        # instrumented (frida's Crash carries the backtrace). Registered for
+        # ATTACH mode too, not just spawn: an attached target can equally be
+        # killed by a hook (fkie-cad/friTap#65 was attaching), and without this
+        # handler such a crash reaches on_detach with no Crash object at all.
+        # Registered after logger.pid is set in both branches above, so the pid
+        # filter in on_process_crashed can do its job.
+        try:
+            logger._backend.on_process_crashed(logger.device, logger.on_process_crashed)
+        except Exception:
+            self._logger.debug("on_process_crashed registration failed", exc_info=True)
         if logger.timeout:
             self._logger.info(f"Waiting {logger.timeout} seconds before resuming...")
             time.sleep(logger.timeout)
@@ -181,7 +201,9 @@ class SessionManager:
             logger._backend.unload_script(logger.script)
 
         try:
-            if getattr(logger, "spawn", False) and logger.device is not None:
+            # Un-gated from spawn to match the registration above: the attach-mode
+            # handler must be removed as well, or the callback outlives the session.
+            if logger.device is not None:
                 logger._backend.off_process_crashed(logger.device, logger.on_process_crashed)
         except Exception:
             pass

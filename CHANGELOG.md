@@ -4,7 +4,7 @@ All notable changes to friTap will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [Unreleased] — 2.3.0
 
 ### Added
   - **`--probe` (dry run).** Loads the agent, reports which platform branch it
@@ -31,15 +31,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     entry point is now reported with a **warning** instead of being skipped
     silently.
 
-    > **Private/extended bundles move in lockstep with this number.** Any
-    > package contributing a `fritap.agent_bundle` entry point must ship a build
-    > declaring `AGENT_ABI_VERSION = 2`, or friTap will skip it and fall back to
-    > the bundled agent. Bumping the constant requires re-running
-    > `python dev/generate_agent_types.py` **and** `./dev/compile_agent.sh`, and
-    > committing the regenerated bundle — `tests/unit/test_agent_bundle_abi_static.py`
-    > fails otherwise.
-
 ### Fixed
+  - **The Apple BoringSSL keylog offset is now derived from the target's own binary**
+    rather than looked up in a version ladder whose open `> 1979.1` catch-all pinned
+    every release from the iOS-17 era onward to a single frozen offset, which
+    corrupted a neighbouring `SSL_CTX` field and killed the target
+    (fkie-cad/friTap#65).
+  - **Spawn mode no longer kills the target before any hook is installed** — friTap
+    messaged `NSProcessInfo` inside a suspended spawn, which is fatal on Apple
+    platforms, and now uses `sysctl` instead (fkie-cad/friTap#65).
   - **macOS: genuine OpenSSL outside `/usr/lib` is hooked at all.** A versioned
     `libssl.<n>.dylib` from Homebrew, pyenv, MacPorts or conda matched **no**
     registry entry — the LibreSSL entry required `/usr/lib`, the "Python OpenSSL"
@@ -83,6 +83,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **Frida error diagnostics no longer claim `server_reachable=False`** for
     errors raised from script-first backend calls, where the first argument is a
     script rather than a device.
+  - **A module without `SSL_CTX_set_keylog_callback` is reported, not silently
+    unhooked.** The setter was constructed above the null guard meant to catch it,
+    so the guard was dead and the throw was swallowed — no hooks, no message.
+    macOS, iOS, Linux, Windows.
+  - **`--spawn` no longer splits an executable path on spaces** for programmatic
+    configs, and no longer warns about ordinary Android package names.
+  - **A device-ID session no longer probes the host filesystem** for a remote path.
+  - **Registry exclusions log once**, not once per `dlopen` of a denylisted module.
+
+### Testing
+  - `stubRanges()` agent stub: the default reported every address as mapped, so the
+    symbol-table `isReadable` guard would have passed even if deleted.
+  - Docs guard test against reintroducing the `EPIPE` claim or an unredirected pipe.
+  - One shared log-capture helper replaces three copies.
 
 ## [2.2.4]
 

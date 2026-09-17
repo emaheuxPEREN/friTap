@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Console output sink for friTap pipeline."""
 
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
 from ..constants import PROTOCOL_QUIC_UNPROCESSED
 from ..output.dedup import KeyDeduplicator
-from ..output.formatters import format_hexdump, format_data_header
+from ..output.formatters import format_data_header, format_hexdump
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class ConsoleSink:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Focused regression tests for five recently-fixed code-review bugs.
 
@@ -24,26 +23,24 @@ import struct
 
 import pytest
 
-# --- BUG #2 imports (mirror tests/unit/test_http2_hpack.py) -----------------
-from friTap.parsers.http2 import Http2Parser, _hpack_available
+# --- BUG #1 imports (mirror test_session_metadata_stamping.py) --------------
+from friTap.connection_index import resolve_connection_key
 
 # --- BUG #4 imports (mirror test_flow_completion_lifecycle / session_meta) --
-from friTap.events import DatalogEvent
+from friTap.events import SESSION_STARTED, DatalogEvent, EventBus
 from friTap.flow.collector import FlowCollector
 
 # --- BUG #5 imports (mirror tests/unit/test_flow_layers.py) -----------------
 from friTap.flow.models import Flow, FlowSummary
 from friTap.flow.tap_format import (
-    encode_flow,
-    encode_finding_record,
     decode_finding_record,
+    encode_finding_record,
+    encode_flow,
 )
-
-# --- BUG #1 imports (mirror test_session_metadata_stamping.py) --------------
-from friTap.connection_index import resolve_connection_key
 from friTap.message_router import MessageRouter
-from friTap.events import EventBus, SESSION_STARTED
 
+# --- BUG #2 imports (mirror tests/unit/test_http2_hpack.py) -----------------
+from friTap.parsers.http2 import Http2Parser, _hpack_available
 
 # ===========================================================================
 # BUG #2 — split-headers END_STREAM (friTap/parsers/http2.py)

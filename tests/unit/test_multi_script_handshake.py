@@ -52,10 +52,7 @@ import queue
 import threading
 import types
 
-import pytest
-
 from friTap.legacy.ssl_logger_core import SSL_Logger
-
 
 # Every wait in this file is bounded. HANDSHAKE_WAIT is the "healthy" bound:
 # the reply is posted synchronously from inside the handler call, so a passing

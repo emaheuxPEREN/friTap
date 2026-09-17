@@ -21,16 +21,16 @@ from pathlib import Path
 # Allow standalone execution from the example/ directory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from friTap.flow.models import format_byte_size
-from friTap.flow.tap_reader import TapReader
 from friTap.flow.http_utils import (
     detect_image_mime_from_bytes,
-    is_image_content_type,
     extension_for_image_mime,
     filename_from_url,
+    is_image_content_type,
     parse_content_disposition_filename,
     sanitize_filename,
 )
+from friTap.flow.models import format_byte_size
+from friTap.flow.tap_reader import TapReader
 
 
 def determine_filename(flow, content_type: str) -> str:

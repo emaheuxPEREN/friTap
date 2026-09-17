@@ -17,10 +17,10 @@ should target `CoreController` / `Session` directly (see `friTap/core.py`),
 not the legacy shim.
 """
 
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import MagicMock, mock_open, patch
 
-from friTap.ssl_logger import SSL_Logger
 from friTap.about import __version__
+from friTap.ssl_logger import SSL_Logger
 
 
 class TestSSLLoggerInitialization:
@@ -128,6 +128,7 @@ class TestAgentBundleResolution:
 
     def test_default_bundle_path_is_shipped_bundle(self):
         import os
+
         from friTap.legacy.ssl_logger_core import here
         logger = SSL_Logger("test_app")
         with patch.dict(os.environ, {}, clear=False):
@@ -178,6 +179,7 @@ class TestAgentBundleEntryPointDiscovery:
 
     def test_matching_abi_entry_point_selected(self):
         import os
+
         from friTap.constants import AGENT_ABI_VERSION
         logger = SSL_Logger("test_app")
         ep = self._fake_ep("full", AGENT_ABI_VERSION, "/tmp/full.js")
@@ -189,6 +191,7 @@ class TestAgentBundleEntryPointDiscovery:
 
     def test_mismatched_abi_entry_point_skipped(self):
         import os
+
         from friTap.constants import AGENT_ABI_VERSION
         from friTap.legacy.ssl_logger_core import here
         logger = SSL_Logger("test_app")
@@ -202,6 +205,7 @@ class TestAgentBundleEntryPointDiscovery:
 
     def test_missing_file_entry_point_skipped(self):
         import os
+
         from friTap.constants import AGENT_ABI_VERSION
         from friTap.legacy.ssl_logger_core import here
         logger = SSL_Logger("test_app")
@@ -214,6 +218,7 @@ class TestAgentBundleEntryPointDiscovery:
 
     def test_env_override_beats_entry_point(self):
         import os
+
         from friTap.constants import AGENT_ABI_VERSION
         logger = SSL_Logger("test_app")
         ep = self._fake_ep("full", AGENT_ABI_VERSION, "/tmp/full.js")

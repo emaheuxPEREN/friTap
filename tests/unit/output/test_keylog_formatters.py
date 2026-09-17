@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Tests for per-protocol :class:`KeylogFormatter` implementations."""
 
 from friTap.events import KeylogEvent
-from friTap.protocols.tls_handler import TlsKeylogFormatter
 from friTap.protocols.ssh_handler import SshKeylogFormatter
+from friTap.protocols.tls_handler import TlsKeylogFormatter
 
 
 class TestTlsKeylogFormatter:

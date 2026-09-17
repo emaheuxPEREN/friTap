@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Output file-naming helpers for per-protocol keylog splits."""
 

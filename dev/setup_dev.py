@@ -7,10 +7,10 @@ Handles dependency installation, environment configuration, and validation.
 """
 
 import json
-import shutil
-import sys
-import subprocess
 import platform
+import shutil
+import subprocess
+import sys
 import traceback
 from pathlib import Path
 

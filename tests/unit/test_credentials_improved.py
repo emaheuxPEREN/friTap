@@ -18,14 +18,13 @@ import uuid
 
 from friTap.analysis import Severity
 from friTap.analysis.credentials import (
-    CredentialAnalyzer,
-    SecretRule,
     _API_KEY_PATTERNS,
     _SECRET_RULES,
+    CredentialAnalyzer,
+    SecretRule,
 )
 from friTap.flow.models import Flow, FlowState
 from friTap.parsers.base import ParseResult
-
 
 # ---------------------------------------------------------------------------
 # Flow builders that set request/response bodies directly on ParseResult.

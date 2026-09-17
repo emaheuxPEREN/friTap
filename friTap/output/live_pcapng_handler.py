@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Live Wireshark PCAPNG output handler with Decryption Secrets Block (DSB).
 
@@ -12,11 +11,12 @@ The setup/connect split prevents the classic FIFO deadlock:
 """
 
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .base import OutputHandler
 
@@ -59,7 +59,7 @@ class LivePcapngHandler(OutputHandler):
         """
         if not self._fifo_path:
             raise RuntimeError("Call create_fifo() before setup()")
-        from ..events import KeylogEvent, DatalogEvent
+        from ..events import DatalogEvent, KeylogEvent
         self._event_bus = event_bus
         event_bus.subscribe(KeylogEvent, self._on_buffered_event)
         event_bus.subscribe(DatalogEvent, self._on_buffered_event)
@@ -146,7 +146,7 @@ class LivePcapngHandler(OutputHandler):
 
         # Unsubscribe buffering callback
         if self._event_bus:
-            from ..events import KeylogEvent, DatalogEvent
+            from ..events import DatalogEvent, KeylogEvent
             self._event_bus.unsubscribe(KeylogEvent, self._on_buffered_event)
             self._event_bus.unsubscribe(DatalogEvent, self._on_buffered_event)
 

@@ -11,7 +11,13 @@ Pattern 2 (IPSec): Multiple struct_extractions, each with its own
 Expect this to be adjusted in the future when we have more protocols
 """
 
-from typing import Any, Dict, List, Optional, Tuple  # noqa: F401  # used in PEP 484 type comments
+from typing import (  # noqa: F401  # used in PEP 484 type comments
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 
 from .definitions.base import (  # noqa: F401  # BreakpointSpec/ExtractionDefinition/StructField used in PEP 484 type comments
     BreakpointSpec,
@@ -20,7 +26,6 @@ from .definitions.base import (  # noqa: F401  # BreakpointSpec/ExtractionDefini
     resolve_offset,
 )
 from .output import KeylogWriter
-
 
 # ======================================================================
 # LLDB callback dispatch state
@@ -53,9 +58,9 @@ _LLDB_RETURN_REGISTRY_CAP = 1024
 # Callback body uses ``__name__`` so a package rename does not silently
 # break the import string LLDB compiles into the callback.
 _LLDB_CALLBACK_BODY = (
-    "import {mod} as _r\n"
+    f"import {__name__} as _r\n"
     "return _r._lldb_dispatch(frame, bp_loc)\n"
-).format(mod=__name__)
+)
 
 
 def _make_lldb_reader(process, frame):
@@ -91,7 +96,7 @@ def _run_and_write(reader, runner, bp_spec, proto, captured=None):
             lines = runner.run_extraction(reader, bp_spec, captured)
         runner.write_results(lines)
     except Exception as exc:
-        print("[{}] Error: {}".format(proto, exc))
+        print(f"[{proto}] Error: {exc}")
 
 
 def _schedule_on_return(frame, bp_spec, runner, proto, captured):
@@ -102,34 +107,26 @@ def _schedule_on_return(frame, bp_spec, runner, proto, captured):
     parent = frame.GetParentFrame()
     if not parent or not parent.IsValid():
         print(
-            "[{}] Cannot schedule on-return for {}: no parent frame".format(
-                proto, bp_spec.function_name
-            )
+            f"[{proto}] Cannot schedule on-return for {bp_spec.function_name}: no parent frame"
         )
         return
     return_pc = parent.GetPC()
     if not return_pc:
         print(
-            "[{}] Cannot schedule on-return for {}: parent PC is 0".format(
-                proto, bp_spec.function_name
-            )
+            f"[{proto}] Cannot schedule on-return for {bp_spec.function_name}: parent PC is 0"
         )
         return
     target = frame.GetThread().GetProcess().GetTarget()
     bp = target.BreakpointCreateByAddress(return_pc)
     if not bp.IsValid():
         print(
-            "[{}] Failed to create return-site breakpoint for {}".format(
-                proto, bp_spec.function_name
-            )
+            f"[{proto}] Failed to create return-site breakpoint for {bp_spec.function_name}"
         )
         return
     bp.SetOneShot(True)
     if len(_LLDB_RETURN_REGISTRY) >= _LLDB_RETURN_REGISTRY_CAP:
         print(
-            "[{}] Return-site registry exceeded {} entries; clearing".format(
-                proto, _LLDB_RETURN_REGISTRY_CAP
-            )
+            f"[{proto}] Return-site registry exceeded {_LLDB_RETURN_REGISTRY_CAP} entries; clearing"
         )
         _LLDB_RETURN_REGISTRY.clear()
     _LLDB_RETURN_REGISTRY[bp.GetID()] = (bp_spec, runner, proto, captured)
@@ -148,7 +145,7 @@ def _lldb_dispatch(frame, bp_loc):
     return_entry = _LLDB_RETURN_REGISTRY.pop(bp_id, None)
     if return_entry is not None:
         bp_spec, runner, proto, captured = return_entry
-        print("[{}] {} returned".format(proto, bp_spec.function_name))
+        print(f"[{proto}] {bp_spec.function_name} returned")
         process = frame.GetThread().GetProcess()
         reader = _make_lldb_reader(process, frame)
         _run_and_write(reader, runner, bp_spec, proto, captured)
@@ -158,7 +155,7 @@ def _lldb_dispatch(frame, bp_loc):
     if entry is None:
         return False
     bp_spec, runner, proto = entry
-    print("[{}] {} hit".format(proto, bp_spec.function_name))
+    print(f"[{proto}] {bp_spec.function_name} hit")
 
     if not bp_spec.struct_extractions:
         return False
@@ -235,7 +232,7 @@ class ExtractionRunner:
                 return b""
             return reader.read_bytes(ptr, size)
 
-        raise ValueError("Unknown read_type: {!r}".format(field.read_type))
+        raise ValueError(f"Unknown read_type: {field.read_type!r}")
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -342,11 +339,7 @@ class ExtractionRunner:
                             )
                         except Exception as exc:
                             print(
-                                "[{}] Error in iteration {}: {}".format(
-                                    self._proto,
-                                    direction,
-                                    exc,
-                                )
+                                f"[{self._proto}] Error in iteration {direction}: {exc}"
                             )
                 else:
                     # Pattern 2: single extraction (e.g. IPSec)
@@ -363,9 +356,7 @@ class ExtractionRunner:
 
             except Exception as exc:
                 print(
-                    "[{}] Extraction error: {}".format(
-                        self._proto, exc
-                    )
+                    f"[{self._proto}] Extraction error: {exc}"
                 )
 
         return lines
@@ -376,9 +367,7 @@ class ExtractionRunner:
         self.writer.write_lines(lines)
         if lines:
             print(
-                "[{}] Extracted {} keys".format(
-                    self._proto, len(lines)
-                )
+                f"[{self._proto}] Extracted {len(lines)} keys"
             )
 
 
@@ -409,6 +398,7 @@ def create_gdb_runner(definition):
         A list of live ``gdb.Breakpoint`` instances.
     """
     import gdb  # noqa: F811 — only available inside GDB
+
     from .adapters.gdb_adapter import GdbMemoryReader
 
     writer = KeylogWriter(definition.keylog_env_var, definition.default_keylog_file)
@@ -436,17 +426,13 @@ def create_gdb_runner(definition):
                     self._spec.function_name, gdb.BP_BREAKPOINT
                 )
                 print(
-                    "[{}] Breakpoint set on {}".format(
-                        self._proto, self._spec.function_name
-                    )
+                    f"[{self._proto}] Breakpoint set on {self._spec.function_name}"
                 )
 
             def stop(self):
                 try:
                     print(
-                        "[{}] {} hit".format(
-                            self._proto, self._spec.function_name
-                        )
+                        f"[{self._proto}] {self._spec.function_name} hit"
                     )
 
                     if not self._spec.struct_extractions:
@@ -476,7 +462,7 @@ def create_gdb_runner(definition):
 
                     self._runner.write_results(lines)
                 except Exception as exc:
-                    print("[{}] Error: {}".format(self._proto, exc))
+                    print(f"[{self._proto}] Error: {exc}")
                 return False
 
         breakpoints.append(_DefinitionBreakpoint())
@@ -514,7 +500,7 @@ def create_lldb_runner(definition, debugger):
 
     if not target.IsValid():
         print(
-            "[{}] No valid target.".format(proto)
+            f"[{proto}] No valid target."
         )
         return
 
@@ -526,13 +512,11 @@ def create_lldb_runner(definition, debugger):
             _LLDB_BP_REGISTRY[bp.GetID()] = (bp_spec, runner, proto)
             bp.SetScriptCallbackBody(_LLDB_CALLBACK_BODY)
             print(
-                "[{}] Breakpoint set on {}".format(
-                    proto, bp_spec.function_name
-                )
+                f"[{proto}] Breakpoint set on {bp_spec.function_name}"
             )
         else:
             print(
-                "[{}] {} not found".format(proto, bp_spec.function_name)
+                f"[{proto}] {bp_spec.function_name} not found"
             )
 
 
@@ -550,12 +534,12 @@ def run_gdb_main(definition):
     import gdb  # noqa: F811
 
     proto = definition.protocol.upper()
-    print("[{}] {} key extraction loaded".format(proto, definition.library))
+    print(f"[{proto}] {definition.library} key extraction loaded")
 
     try:
         create_gdb_runner(definition)
     except Exception as exc:
-        print("[{}] Failed to create breakpoints: {}".format(proto, exc))
+        print(f"[{proto}] Failed to create breakpoints: {exc}")
         return
 
     gdb.execute("continue")
@@ -571,12 +555,12 @@ def run_lldb_main(definition, debugger):
     import lldb  # noqa: F401, F811  # only available inside LLDB
 
     proto = definition.protocol.upper()
-    print("[{}] {} key extraction loaded".format(proto, definition.library))
+    print(f"[{proto}] {definition.library} key extraction loaded")
 
     try:
         create_lldb_runner(definition, debugger)
     except Exception as exc:
-        print("[{}] Failed to create breakpoints: {}".format(proto, exc))
+        print(f"[{proto}] Failed to create breakpoints: {exc}")
         return
 
     target = debugger.GetSelectedTarget()

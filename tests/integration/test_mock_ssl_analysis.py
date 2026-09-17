@@ -25,17 +25,17 @@ import tempfile
 
 import pytest
 
-from friTap.ssl_logger import SSL_Logger
 from friTap.android import Android
 from friTap.events import (
-    LibraryDetectedEvent,
-    SessionEvent,
+    SESSION_STARTED,
     DatalogEvent,
     ErrorEvent,
-    SESSION_STARTED,
+    LibraryDetectedEvent,
+    SessionEvent,
 )
 from friTap.output.json_handler import JsonOutputHandler
 from friTap.output.keylog_handler import KeylogOutputHandler
+from friTap.ssl_logger import SSL_Logger
 
 
 def _json_handler(logger):

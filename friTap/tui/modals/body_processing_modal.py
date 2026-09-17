@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Body processing modal for friTap TUI.
@@ -62,6 +61,7 @@ class BodyProcessingResult:
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     # -- Protobuf sub-modal -----------------------------------------------
@@ -355,12 +355,16 @@ if TEXTUAL_AVAILABLE:
                 return
 
             try:
-                from google.protobuf import descriptor_pool, descriptor_pb2  # noqa: F401
-                from google.protobuf.compiler import plugin_pb2  # noqa: F401
-                from google.protobuf import text_format
+                import os
                 import subprocess
                 import tempfile
-                import os
+
+                from google.protobuf import (  # noqa: F401
+                    descriptor_pb2,
+                    descriptor_pool,
+                    text_format,
+                )
+                from google.protobuf.compiler import plugin_pb2  # noqa: F401
 
                 # Use protoc to compile .proto to descriptor set
                 schema_path = self._config.schema_path
@@ -394,8 +398,10 @@ if TEXTUAL_AVAILABLE:
 
                     from google.protobuf import descriptor_pb2 as dp2
                     from google.protobuf import descriptor_pool as pool_mod
-                    from google.protobuf import message_factory
-                    from google.protobuf import symbol_database  # noqa: F401
+                    from google.protobuf import (
+                        message_factory,
+                        symbol_database,  # noqa: F401
+                    )
 
                     with open(tmp_path, "rb") as f:
                         fds = dp2.FileDescriptorSet.FromString(f.read())

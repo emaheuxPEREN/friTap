@@ -11,7 +11,7 @@ Covers the friTap-side of the PairIP SIGSEGV fix (fkie-cad/friTap#64):
 
 from friTap.config import FriTapConfig
 from friTap.constants import ContentType
-from friTap.events import EventBus, AntiTamperDetectedEvent
+from friTap.events import AntiTamperDetectedEvent, EventBus
 from friTap.fritap_utility import build_anti_tamper_banner
 from friTap.message_router import MessageRouter
 

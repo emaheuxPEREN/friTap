@@ -22,7 +22,6 @@ from .agent_messages import (
     SSHKeyMessage,
     SSHNewKeysMessage,
 )
-
 from .canonical import (
     AddressFamily,
     DataCanonical,
@@ -31,7 +30,6 @@ from .canonical import (
     KeylogCanonical,
     MetaCanonical,
 )
-
 from .host_messages import (
     AgentHandshakeConfig,
     OffsetConfig,

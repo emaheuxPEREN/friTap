@@ -16,7 +16,6 @@ from friTap.flow.tap_format import TapMeta
 from friTap.flow.tap_writer import TapWriter
 from friTap.parsers.base import ParseResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

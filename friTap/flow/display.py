@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from typing import Optional, Protocol, runtime_checkable
 
-
 _LOOPBACK_ADDRS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 

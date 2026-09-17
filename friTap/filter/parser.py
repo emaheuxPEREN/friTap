@@ -16,12 +16,16 @@ from __future__ import annotations
 import re
 
 from .ast_nodes import (
-    ASTNode, ComparisonNode, ExistenceNode,
-    AndNode, OrNode, NotNode,
+    AndNode,
+    ASTNode,
+    ComparisonNode,
+    ExistenceNode,
+    NotNode,
+    OrNode,
 )
 from .errors import FilterSyntaxError
 from .fields import FIELD_REGISTRY, get_field
-from .lexer import Token, TokenType, OPERATOR_TOKENS, tokenize
+from .lexer import OPERATOR_TOKENS, Token, TokenType, tokenize
 
 
 class _Parser:

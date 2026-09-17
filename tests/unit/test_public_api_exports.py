@@ -11,7 +11,6 @@ import importlib
 
 import friTap
 
-
 # The new public-API symbols this milestone added to ``friTap``.
 NEW_PUBLIC_SYMBOLS = [
     "AnalyzeReport",
@@ -59,6 +58,7 @@ def test_analyze_symbols_share_identity_with_commands_analyze():
 
 def test_offline_symbols_share_identity_with_offline_package():
     import types
+
     import friTap.offline as offline
 
     assert friTap.convert_pcap_to_tap is offline.convert_pcap_to_tap

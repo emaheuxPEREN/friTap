@@ -26,10 +26,10 @@ has its own base_arg and label.
 Output format: IPSEC_ENCR_I {hex}, IPSEC_SK_AI {hex}, etc.
 """
 from .base import (
-    StructField,
-    StructExtraction,
     BreakpointSpec,
     ExtractionDefinition,
+    StructExtraction,
+    StructField,
 )
 
 # --- key_material_t struct fields ---

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the guided pcap-to-tap wizard (Work Item 4).
 
@@ -306,7 +305,8 @@ class TestPcapToTapWizardFlow:
 
     def test_confirm_back_returns_to_protocol_step(self):
         from friTap.tui.modals.pcap_to_tap_modals import (
-            PcapToTapConfirmModal, ProtocolKeylogModal,
+            PcapToTapConfirmModal,
+            ProtocolKeylogModal,
         )
         screen, pushed = _make_wizard_screen()
         wiz = PcapToTapWizard(screen)
@@ -353,8 +353,10 @@ class TestPcapToTapWizardFlow:
 class TestPcapToTapModals:
     def test_paths_modal_accept_returns_dict(self):
         import asyncio
-        from friTap.tui.modals.pcap_to_tap_modals import PcapPathsModal
+
         from textual.widgets import Input
+
+        from friTap.tui.modals.pcap_to_tap_modals import PcapPathsModal
         result: dict = {}
 
         async def _run() -> None:
@@ -382,8 +384,10 @@ class TestPcapToTapModals:
 
     def test_paths_modal_empty_pcap_keeps_open(self):
         import asyncio
-        from friTap.tui.modals.pcap_to_tap_modals import PcapPathsModal
+
         from textual.widgets import Input
+
+        from friTap.tui.modals.pcap_to_tap_modals import PcapPathsModal
         result: dict = {"dismissed": False}
 
         async def _run() -> None:
@@ -405,6 +409,7 @@ class TestPcapToTapModals:
 
     def test_protocol_keylog_modal_done_returns_action_done(self):
         import asyncio
+
         from friTap.tui.modals.pcap_to_tap_modals import ProtocolKeylogModal
         result: dict = {}
 
@@ -430,6 +435,7 @@ class TestPcapToTapModals:
 
     def test_confirm_modal_convert_returns_true(self):
         import asyncio
+
         from friTap.tui.modals.pcap_to_tap_modals import PcapToTapConfirmModal
         result: dict = {}
 
@@ -540,7 +546,9 @@ class TestWizardTlsFeedback:
 class TestPcapReadShowsEmptyFlowView:
     def test_empty_flow_view_backdrop_and_paths_modal_without_tls_field(self):
         import asyncio
+
         from textual.widgets import Input
+
         from friTap.tui.modals.pcap_to_tap_modals import PcapPathsModal
 
         async def _run() -> None:

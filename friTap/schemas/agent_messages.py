@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Pydantic v2 models for agent -> host messages in friTap.
@@ -24,7 +23,6 @@ from __future__ import annotations
 from typing import Annotated, Dict, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
-
 
 # ---------------------------------------------------------------------------
 # Base

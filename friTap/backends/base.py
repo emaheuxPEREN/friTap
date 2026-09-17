@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Abstract base class for instrumentation backends.
@@ -13,6 +12,7 @@ friTap supports multiple backends for dynamic instrumentation:
 """
 
 from __future__ import annotations
+
 import functools
 import re
 import struct
@@ -20,7 +20,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Optional
-
 
 # ---------------------------------------------------------------------------
 # Backend exception hierarchy

@@ -1,37 +1,37 @@
 """Protocol parsers for friTap flow mode."""
 
 from .base import BaseParser, ParseResult
+from .decompress import decompress_body
 from .hexdump import HexdumpParser
 from .http1 import Http1Parser
 from .http2 import Http2Parser
-from .http3 import Http3Parser
-from .registry import ParserRegistry, get_default_registry
 from .http2_dataframe import (
-    looks_like_http2,
-    group_http2_data_by_stream,
     HTTP2_PREFACE,
+    group_http2_data_by_stream,
+    looks_like_http2,
 )
+from .http3 import Http3Parser
+from .protobuf import (
+    GrpcFrame,
+    ProtobufField,
+    ProtobufMessage,
+    ProtobufProcessor,
+    WireType,
+    decode_raw,
+    extract_grpc_messages,
+    format_message,
+    is_grpc_content_type,
+    is_grpc_frame,
+    is_likely_protobuf,
+    strip_grpc_frame,
+)
+from .registry import ParserRegistry, get_default_registry
+from .varint import decode_varint, encode_varint
 from .websocket_defray import (
     WebSocketFrame,
     iter_websocket_frames,
     looks_like_websocket_frame,
     unmask,
-)
-from .decompress import decompress_body
-from .varint import decode_varint, encode_varint
-from .protobuf import (
-    decode_raw,
-    format_message,
-    is_likely_protobuf,
-    ProtobufField,
-    ProtobufMessage,
-    WireType,
-    extract_grpc_messages,
-    is_grpc_content_type,
-    is_grpc_frame,
-    strip_grpc_frame,
-    GrpcFrame,
-    ProtobufProcessor,
 )
 
 __all__ = [

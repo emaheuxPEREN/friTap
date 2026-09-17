@@ -43,7 +43,7 @@ class LldbMemoryReader:
         error = self._error
         data = self._process.ReadMemory(addr, ptr_size, error)
         if error.Fail():
-            raise RuntimeError("Pointer read at 0x{:x}: {}".format(addr, error.GetCString()))
+            raise RuntimeError(f"Pointer read at 0x{addr:x}: {error.GetCString()}")
         fmt = "<Q" if ptr_size == 8 else "<I"
         return struct.unpack(fmt, data)[0]
 
@@ -51,21 +51,21 @@ class LldbMemoryReader:
         error = self._error
         data = self._process.ReadMemory(addr, 4, error)
         if error.Fail():
-            raise RuntimeError("uint32 read at 0x{:x}: {}".format(addr, error.GetCString()))
+            raise RuntimeError(f"uint32 read at 0x{addr:x}: {error.GetCString()}")
         return struct.unpack("<I", data)[0]
 
     def read_bytes(self, addr, length):
         error = self._error
         data = self._process.ReadMemory(addr, length, error)
         if error.Fail():
-            raise RuntimeError("Read at 0x{:x}: {}".format(addr, error.GetCString()))
+            raise RuntimeError(f"Read at 0x{addr:x}: {error.GetCString()}")
         return data
 
     def read_string(self, addr, max_len=128):
         error = self._error
         data = self._process.ReadMemory(addr, max_len, error)
         if error.Fail():
-            raise RuntimeError("String read at 0x{:x}: {}".format(addr, error.GetCString()))
+            raise RuntimeError(f"String read at 0x{addr:x}: {error.GetCString()}")
         null_idx = data.find(b'\x00')
         if null_idx >= 0:
             data = data[:null_idx]
@@ -87,9 +87,9 @@ class LldbMemoryReader:
                 reg_val = self._frame.FindRegister(concrete)
                 if reg_val.IsValid():
                     return reg_val.GetValueAsUnsigned()
-            raise RuntimeError("Cannot read register {}".format(concrete))
+            raise RuntimeError(f"Cannot read register {concrete}")
         if self._frame:
             reg_val = self._frame.FindRegister(name)
             if reg_val.IsValid():
                 return reg_val.GetValueAsUnsigned()
-        raise RuntimeError("Register {} not found".format(name))
+        raise RuntimeError(f"Register {name} not found")

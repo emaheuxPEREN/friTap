@@ -5,7 +5,7 @@ import logging
 import re
 import threading
 import time
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from .models import FlowSummary
@@ -13,13 +13,13 @@ if TYPE_CHECKING:
 from friTap.connection_index import resolve_connection_key
 from friTap.constants import SSL_READ
 from friTap.events import (
-    FlowEvent,
-    ErrorEvent,
     ERROR_SEVERITY_WARNING,
-    SESSION_STARTED,
-    SESSION_RESUMED,
-    SESSION_ENDED,
     SESSION_DESTROYED,
+    SESSION_ENDED,
+    SESSION_RESUMED,
+    SESSION_STARTED,
+    ErrorEvent,
+    FlowEvent,
 )
 from friTap.parsers.base import (
     BaseParser,
@@ -34,7 +34,7 @@ from friTap.parsers.http3 import build_h3_result_from_headers
 from friTap.parsers.registry import get_default_registry
 
 from .layer_pipeline import LayerPipeline
-from .models import Flow, FlowEventType, FlowState, FlowChunk
+from .models import Flow, FlowChunk, FlowEventType, FlowState
 
 logger = logging.getLogger(__name__)
 

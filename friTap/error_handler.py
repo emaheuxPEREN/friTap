@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Error handler for friTap Frida script errors.
@@ -8,9 +7,9 @@ Handles error reporting, JSON logging, rich console output,
 and message formatting for Frida script messages.
 """
 
+import logging
 import os
 import signal
-import logging
 from datetime import datetime, timezone
 
 try:

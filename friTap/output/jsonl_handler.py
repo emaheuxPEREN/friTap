@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Streaming JSON Lines output handler for pipeline processing."""
 
 from __future__ import annotations
+
 import json
 import logging
-from typing import IO, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Optional
 
 from .base import OutputHandler
 

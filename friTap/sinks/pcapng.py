@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """PCAPNG output sink with Decryption Secrets Block (DSB).
 
@@ -8,15 +7,22 @@ auto-decrypt without a separate keylog file.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import Callable, IO, List, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Callable, List, Optional
 
 from ..output.dedup import KeyDeduplicator
-from ..output.pcapng_blocks import build_shb, build_idb, build_dsb, build_epb, EPB_FLUSH_INTERVAL
+from ..output.pcapng_blocks import (
+    EPB_FLUSH_INTERVAL,
+    build_dsb,
+    build_epb,
+    build_idb,
+    build_shb,
+)
 from .tcp_state import TcpSessionTracker, build_framed_packet
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class PcapngSink:

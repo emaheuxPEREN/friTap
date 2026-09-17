@@ -162,6 +162,13 @@ fritap -f -k keys.log -p traffic.pcap target
     text, and exits **without capturing anything**. Always pair `-f` with
     `-p <path>`.
 
+!!! note "`-f` needs a host libpcap provider; `-k`/`-p` do not"
+    Full raw capture sniffs the real interface, so it needs Npcap on Windows
+    (see the [Windows guide](../platforms/windows.md#npcap-optional--only-for--f--full_capture);
+    on ARM64 match the Python architecture) or libpcap + raw-socket privileges on
+    Linux/macOS. Key extraction (`-k`) and decrypted-payload capture (`-p`) are
+    written by friTap itself and need no capture driver.
+
 #### `--owner-capture, -oc`
 **Android/Linux, rooted.** Scope the full packet capture (`-f`) to **only** the
 target app's traffic using its Linux UID, via the **AppTap** library. friTap picks

@@ -14,7 +14,7 @@ fritap_majors:
     frida_major_min: 17
     frida_major_max: 17
     status: current
-    notes: "First 3-segment SemVer release. Pin: frida>=17.0.0,<18.0.0."
+    notes: "First 3-segment SemVer release. Pin: frida>=17.0.0,<18.0.0, capped at <17.16.0 on Python 3.10 (frida 17.16.0+ needs 3.11+)."
 
 # Machine-readable era boundaries for legacy installs. Consumed by
 # dev/install_legacy.py and the legacy-constraints-check CI job. Each row

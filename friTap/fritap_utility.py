@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-from pathlib import Path
-from .backends import get_backend
 import atexit
 import contextlib
 import logging
@@ -13,7 +10,11 @@ import sys
 import tempfile
 import threading
 import time
+from pathlib import Path
 from typing import Iterable, Optional
+
+from .backends import get_backend
+
 
 def find_pid_by_name(proc_name: str) -> int | None:
     """
@@ -74,6 +75,62 @@ WINDOWS_LIVE_UNSUPPORTED = (
     "Use -p <file.pcapng> to write a PCAP file instead, "
     "then open it in Wireshark."
 )
+
+
+NPCAP_URL = "https://npcap.com/"
+
+
+def _host_is_windows_arm64() -> bool:
+    """True when the *host* is Windows on ARM, even under x64 emulation.
+
+    An emulated x64 Python reports ``platform.machine() == "AMD64"``; Windows
+    still exposes the real host architecture via PROCESSOR_ARCHITEW6432 in that
+    case, so check both plus PROCESSOR_ARCHITECTURE.
+    """
+    candidates = (
+        platform.machine(),
+        os.environ.get("PROCESSOR_ARCHITEW6432", ""),
+        os.environ.get("PROCESSOR_ARCHITECTURE", ""),
+    )
+    return any(c.lower() in ("arm64", "aarch64") for c in candidates)
+
+
+def libpcap_provider_hint() -> str:
+    """Actionable guidance for a missing/unusable libpcap provider.
+
+    Only ``-f/--full_capture`` and live auto-decrypt *local* capture need a host
+    libpcap provider. ``-k`` (keylog) and ``-p`` (decrypted-payload pcap) are
+    written by friTap itself from the Frida agent's byte stream and work without
+    one, so the guidance always reminds the user of that.
+    """
+    if are_we_running_on_windows():
+        parts = [
+            "Full packet capture (-f) and live auto-decrypt local capture need a "
+            f"libpcap provider. On Windows, install Npcap ({NPCAP_URL}) and re-run "
+            "friTap from an elevated (Administrator) shell.",
+        ]
+        if _host_is_windows_arm64():
+            parts.append(
+                "Windows on ARM: Npcap >= 1.50 ships x86 and ARM64 DLLs but no x64 "
+                "build, so the provider only loads into a Python whose architecture "
+                "matches - native ARM64 Python (recommended) or x86 Python. An x64 "
+                "Python under emulation can never load Npcap's DLLs. This "
+                f"interpreter is {platform.machine()} "
+                f"({platform.architecture()[0]})."
+            )
+        parts.append(
+            "Keylog (-k) and decrypted-payload pcap (-p) do NOT need Npcap and "
+            "keep working without it."
+        )
+        return " ".join(parts)
+    return (
+        "Full packet capture (-f) and live auto-decrypt local capture need raw "
+        "packet access. On Linux, run friTap with 'sudo' or grant the interpreter "
+        "CAP_NET_RAW/CAP_NET_ADMIN. On macOS/BSD, make sure your user can read "
+        "/dev/bpf* (run with 'sudo', or install Wireshark's ChmodBPF helper). "
+        "Keylog (-k) and decrypted-payload pcap (-p) do NOT need this and keep "
+        "working without it."
+    )
 
 
 def find_wireshark_binary() -> str | None:
@@ -452,7 +509,8 @@ def _resolve_debug_log_path(override: Optional[str] = None) -> str:
 
 
 def _format_debug_log_header() -> str:
-    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
     parts = [
         f"# friTap debug log — started {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
     ]

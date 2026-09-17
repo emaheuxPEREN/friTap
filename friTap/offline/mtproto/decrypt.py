@@ -17,8 +17,8 @@ from typing import Dict, Iterator, Optional, Tuple
 
 from ...protocols.mtproto_keylog_spec import MtprotoAuthKey
 from . import MtprotoCryptoError, MtprotoDependencyError
-from .records import DecryptedMessage, MtprotoStats
 from .reassembly import INIT_BLOCK_LEN, StreamPair, reassemble_pcap
+from .records import DecryptedMessage, MtprotoStats
 from .transport import ObfuscationCipher, detect_transport, iter_frames
 
 logger = logging.getLogger(__name__)

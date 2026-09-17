@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 ScriptContext — frozen dataclass encapsulating everything a ScriptPlugin needs.
@@ -9,8 +8,9 @@ plugins can create/load scripts without reaching into SSL_Logger internals.
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ..backends.base import Backend

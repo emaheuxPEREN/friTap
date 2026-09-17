@@ -34,7 +34,6 @@ import pytest
 
 from friTap.legacy.ssl_logger_core import SSL_Logger, _InstrumentRequest
 
-
 FAKE_DEVICE = "FAKE-DEVICE"
 
 

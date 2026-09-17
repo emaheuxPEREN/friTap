@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Save .tap file modal dialog."""
 
@@ -10,15 +9,15 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from textual.widgets import Static, Button, Input
     from textual.containers import Horizontal, Vertical
+    from textual.widgets import Button, Input, Static
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
 if TEXTUAL_AVAILABLE:
-    from .base import FriTapModal
     from ..themes import c
+    from .base import FriTapModal
 
     class SaveTapModal(FriTapModal[Optional[str]]):
         """Modal dialog to choose a filename for saving a .tap capture file."""

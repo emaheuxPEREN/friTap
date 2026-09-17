@@ -5,14 +5,15 @@ This module provides common fixtures, marks, and configuration
 for all friTap tests.
 """
 
-import pytest
+import os
 import platform
 import subprocess
-import tempfile
-import os
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # Add friTap to path for testing
 sys.path.insert(0, str(Path(__file__).parent.parent))

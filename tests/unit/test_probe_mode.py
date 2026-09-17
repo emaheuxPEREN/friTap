@@ -27,7 +27,6 @@ from friTap.friTap import _probe_conflict_warnings
 from friTap.legacy.ssl_logger_core import SSL_Logger
 from friTap.message_router import MessageRouter
 
-
 # ---------------------------------------------------------------------------
 # config_batch
 # ---------------------------------------------------------------------------

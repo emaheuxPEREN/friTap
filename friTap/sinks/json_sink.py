@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """JSON/JSONL output sink for friTap pipeline."""
 
 from __future__ import annotations
+
 import json
 import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class JsonSink:

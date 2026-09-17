@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Display filter modal for friTap TUI.
@@ -36,6 +35,7 @@ class FilterResult:
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     class FilterModal(FriTapModal[Optional[FilterResult]]):

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Example stats plugin — counts captured events and prints a summary on exit.
@@ -9,8 +8,9 @@ Find the path with: python -c "from friTap.plugins.loader import PLUGIN_DIR; pri
 """
 
 import logging
+
+from friTap.events import ConsoleEvent, DatalogEvent, ErrorEvent, KeylogEvent
 from friTap.plugins.base import FriTapPlugin
-from friTap.events import KeylogEvent, DatalogEvent, ConsoleEvent, ErrorEvent
 
 logger = logging.getLogger("friTap.plugins.stats")
 

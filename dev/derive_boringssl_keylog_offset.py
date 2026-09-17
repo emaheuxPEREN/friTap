@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Derive the BoringSSL ``SSL_CTX`` keylog-callback offset from iOS Simulator runtimes.

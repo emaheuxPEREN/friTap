@@ -32,7 +32,6 @@ from friTap.flow.models import Flow, FlowChunk, FlowState
 from friTap.flow.tap_writer import TapWriter
 from friTap.parsers.base import ParseResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

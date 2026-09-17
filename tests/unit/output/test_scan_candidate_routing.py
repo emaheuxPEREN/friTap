@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Tests for the generic memory-scan candidate path (--scan-keys-region).
 
@@ -15,7 +14,7 @@ import logging
 
 import pytest
 
-from friTap.config import FriTapConfig, OutputConfig, HookingConfig
+from friTap.config import FriTapConfig, HookingConfig, OutputConfig
 from friTap.events import EventBus, KeylogEvent
 from friTap.message_router import MessageRouter
 from friTap.output.factory import OutputHandlerFactory

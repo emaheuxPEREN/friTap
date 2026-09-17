@@ -13,9 +13,9 @@ Usage:
         print(f"Invalid: {error}")
 """
 
+from .errors import FilterEvalError, FilterSyntaxError
 from .evaluator import FilterEngine
-from .errors import FilterSyntaxError, FilterEvalError
-from .fields import all_field_names, FIELD_REGISTRY, is_field_prefix
+from .fields import FIELD_REGISTRY, all_field_names, is_field_prefix
 from .parser import parse_filter
 
 __all__ = [

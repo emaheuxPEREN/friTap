@@ -10,6 +10,7 @@ when QUIC hooks are active. It parses:
 """
 
 from friTap.constants import PROTOCOL_HTTP3
+
 from .base import BaseParser, ParseResult, apply_http2_headers
 from .varint import decode_varint
 

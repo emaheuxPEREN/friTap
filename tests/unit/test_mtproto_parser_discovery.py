@@ -11,7 +11,6 @@ import pytest
 from friTap.parsers import registry as preg
 from friTap.parsers.base import BaseParser
 
-
 _PARSER_FILE = '''
 from friTap.parsers.base import BaseParser, ParseResult
 

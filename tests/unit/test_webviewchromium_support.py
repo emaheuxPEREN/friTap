@@ -21,7 +21,6 @@ import re
 
 import pytest
 
-
 # Verified concrete arm64 ssl_log_secret prologue from a real libwebviewchromium.so
 # build (user-supplied, 2026-06). The FF 03 02 D1 frame (sub sp, #0x80) is the
 # *fallback* branch of the shipped wildcard.

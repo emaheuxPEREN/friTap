@@ -35,7 +35,6 @@ from friTap.ios import (
     parse_report_timestamp,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: realistic report bodies, written inline so nothing depends on files
 # from a real device.
@@ -89,10 +88,7 @@ IPS_PAYLOAD = {
 
 def _ips_text(header=None, payload=None):
     """Serialize a two-part ``.ips``: header line + payload body."""
-    return "{}\n{}\n".format(
-        json.dumps(header if header is not None else IPS_HEADER),
-        json.dumps(payload if payload is not None else IPS_PAYLOAD, indent=2),
-    )
+    return f"{json.dumps(header if header is not None else IPS_HEADER)}\n{json.dumps(payload if payload is not None else IPS_PAYLOAD, indent=2)}\n"
 
 
 LEGACY_CRASH_TEXT = """Incident Identifier: 11112222-3333-4444-5555-666677778888

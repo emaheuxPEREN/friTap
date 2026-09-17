@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Live Wireshark PCAP sink streaming to a named FIFO."""
 
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
-from .pcap import PcapSink
 from .live_pcapng import _cleanup_fifo
+from .pcap import PcapSink
 
 if TYPE_CHECKING:
     from ..pcap import PCAP
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class LiveWiresharkSink:

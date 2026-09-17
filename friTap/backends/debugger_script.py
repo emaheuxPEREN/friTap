@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 DebuggerScript — abstract base for GDB/LLDB script wrappers.

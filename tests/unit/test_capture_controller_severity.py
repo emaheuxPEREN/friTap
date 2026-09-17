@@ -23,14 +23,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from friTap.events import (
-    ErrorEvent,
     ERROR_SEVERITY_ERROR,
     ERROR_SEVERITY_FATAL,
     ERROR_SEVERITY_INFO,
     ERROR_SEVERITY_WARNING,
+    ErrorEvent,
     EventBus,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared stubs

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """PCAP output handler wrapping the existing PCAP class."""
 
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
 from .base import OutputHandler
 
 if TYPE_CHECKING:
-    from ..events import EventBus, DatalogEvent
+    from ..events import DatalogEvent, EventBus
     from ..pcap import PCAP
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """scrub_public_tree.py — neutralize SUBSTANTIVE Signal-E2E reveals in a
 throwaway public tree (friTap tiering §E publish scrubber).
 
@@ -33,6 +32,7 @@ NOT scrubbed here (accepted per the §F-strict decision, 2026-06):
 Usage: python3 scripts/scrub_public_tree.py <tree_dir>
 """
 from __future__ import annotations
+
 import importlib.util
 import os
 import re

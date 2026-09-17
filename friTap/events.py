@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Event bus system for friTap.
@@ -10,12 +9,12 @@ external integrations subscribe to typed events.
 """
 
 from __future__ import annotations
+
 import logging
-import time
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type
-
 
 # ---------------------------------------------------------------------------
 # Base event

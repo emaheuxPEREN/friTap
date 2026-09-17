@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Capture controller -- manages the capture lifecycle extracted from MainScreen.
@@ -15,10 +14,11 @@ import os
 import shlex
 import time
 
-from .modals.alert_modal import AlertModal
 from friTap.constants import build_infrastructure_display_filter
 from friTap.events import ERROR_SEVERITY_ERROR, ERROR_SEVERITY_FATAL
 from friTap.tui.themes import c
+
+from .modals.alert_modal import AlertModal
 
 logger = logging.getLogger("friTap.tui.capture")
 
@@ -440,9 +440,14 @@ class CaptureController:
                 pass
 
         from friTap.events import (
-            DatalogEvent, KeylogEvent, ConsoleEvent, ErrorEvent,
-            LibraryDetectedEvent, SessionEvent, DetachEvent,
+            ConsoleEvent,
+            DatalogEvent,
+            DetachEvent,
+            ErrorEvent,
+            KeylogEvent,
+            LibraryDetectedEvent,
             OhttpEvent,
+            SessionEvent,
         )
         for evt_type in (DatalogEvent, KeylogEvent, ConsoleEvent, ErrorEvent,
                          LibraryDetectedEvent, SessionEvent, DetachEvent,
@@ -501,7 +506,12 @@ class CaptureController:
 
     def build_config(self, state):
         """Build a FriTapConfig from AppState."""
-        from friTap.config import FriTapConfig, DeviceConfig, OutputConfig, HookingConfig
+        from friTap.config import (
+            DeviceConfig,
+            FriTapConfig,
+            HookingConfig,
+            OutputConfig,
+        )
 
         device = DeviceConfig(spawn=state.spawn)
         if state.device_id:
@@ -637,14 +647,18 @@ class CaptureController:
             # ErrorEvent + a process-terminated DetachEvent and stops `running`,
             # so the worker loop below exits normally (no exception). Record it
             # here so _on_session_ended reports failure instead of "completed".
-            from friTap.events import ErrorEvent as _ErrorEvent, DetachEvent as _DetachEvent
+            from friTap.events import DetachEvent as _DetachEvent
+            from friTap.events import ErrorEvent as _ErrorEvent
             self._ssl_logger._event_bus.subscribe(_ErrorEvent, self._on_session_error_event)
             self._ssl_logger._event_bus.subscribe(_DetachEvent, self._on_session_detach_event)
 
             # Wire FlowCollector to event bus for data events
             if self._flow_collector is not None:
                 from friTap.events import (
-                    DatalogEvent, OhttpEvent, LibraryDetectedEvent, SessionEvent,
+                    DatalogEvent,
+                    LibraryDetectedEvent,
+                    OhttpEvent,
+                    SessionEvent,
                 )
                 self._ssl_logger._event_bus.subscribe(
                     DatalogEvent, self._flow_collector.on_data
@@ -686,8 +700,8 @@ class CaptureController:
                 # Register OHTTP tab if OHTTP decryption is enabled
                 if getattr(state, 'encapsulated_protocols', {}).get("ohttp", True):
                     try:
-                        from friTap.tui.widgets.ohttp_tab import OhttpTabProvider
                         from friTap.tui.widgets.flow_detail import FlowDetailWidget
+                        from friTap.tui.widgets.ohttp_tab import OhttpTabProvider
                         flow_detail = self._screen.query_one("#flow-detail", FlowDetailWidget)
                         if not any(t.tab_id == "ohttp" for t in flow_detail._extra_tabs):
                             flow_detail.register_tab(OhttpTabProvider())
@@ -729,6 +743,7 @@ class CaptureController:
                     bus = getattr(self._ssl_logger, "_event_bus", None)
                     if bus is not None:
                         import traceback as _tb
+
                         from friTap.events import ErrorEvent
                         bus.emit(ErrorEvent(
                             error=type(e).__name__,

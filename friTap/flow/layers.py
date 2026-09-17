@@ -17,7 +17,7 @@ A flow-like owner is anything exposing ``get_direction_bytes(direction)`` where
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from friTap.parsers.base import ParseResult

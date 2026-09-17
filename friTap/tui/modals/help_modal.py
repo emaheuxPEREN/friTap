@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Help screen overlay for friTap TUI.
@@ -12,9 +11,9 @@ from __future__ import annotations
 try:
     from textual.app import ComposeResult
     from textual.binding import Binding
+    from textual.containers import Vertical, VerticalScroll  # noqa: F401
     from textual.screen import Screen
     from textual.widgets import Static
-    from textual.containers import Vertical, VerticalScroll  # noqa: F401
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False

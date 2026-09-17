@@ -164,7 +164,7 @@ def test_with_category_does_not_clobber_existing():
 # --- backward-compat of _filter_min_severity wrapper -----------------------
 
 def test_filter_min_severity_wrapper_parity():
-    from friTap.commands.analyze import _filter_min_severity, _SEVERITY_ORDER
+    from friTap.commands.analyze import _SEVERITY_ORDER, _filter_min_severity
 
     findings = _sample()
     for threshold in list(_SEVERITY_ORDER) + ["bogus"]:

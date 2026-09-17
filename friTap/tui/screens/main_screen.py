@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Main screen for friTap TUI -- single split-pane layout.
@@ -12,7 +11,7 @@ Device/process selection via modals.
 from __future__ import annotations
 
 import sys
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ..app import AppState
@@ -20,38 +19,39 @@ if TYPE_CHECKING:
 try:
     from textual.app import ComposeResult
     from textual.binding import Binding  # noqa: F401
-    from textual.screen import Screen
-    from textual.widgets import Header, Footer, Static
     from textual.containers import Horizontal, Vertical
+    from textual.screen import Screen
+    from textual.widgets import Footer, Header, Static
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
 if TEXTUAL_AVAILABLE:
-    from ..widgets.activity_log import ActivityLog
-    from ..widgets.status_bar import StatusBar
-    from ..widgets.menu_panel import MenuPanel
-    from ..widgets.flow_list import FlowListWidget
-    from ..widgets.flow_detail import FlowDetailWidget
-    from ..widgets.filter_bar import FilterBar
-    from ..widgets.findings_list import FindingsListWidget
-    from ..widgets.findings_filter_bar import FindingsFilterBar
-    from ..widgets.analyzer_panel import AnalyzerPanel
-    from ..widgets.analyzer_finding_detail import AnalyzerFindingDetailWidget
-    from ..modals.findings_filter_modal import FindingsFilterModal
     from friTap.analysis import Finding, Severity  # noqa: F401
     from friTap.analysis.filtering import FindingFilter, summarize
     from friTap.analysis.registry import available_analyzers, resolve_analyzers
-    from ..modals.device_modal import DeviceSelectModal
-    from ..modals.process_modal import ProcessSelectModal
-    from ..modals.spawn_modal import SpawnInputModal
-    from ..modals.help_modal import HelpScreen
-    from ..modals.protocol_modal import ProtocolSelectModal
-    from ..modals.filter_modal import FilterModal, FilterResult
-    from ..wizard import CaptureWizard, PcapToTapWizard
+
     from ..capture_controller import CaptureController
+    from ..modals.device_modal import DeviceSelectModal
+    from ..modals.filter_modal import FilterModal, FilterResult
+    from ..modals.findings_filter_modal import FindingsFilterModal
+    from ..modals.help_modal import HelpScreen
+    from ..modals.process_modal import ProcessSelectModal
+    from ..modals.protocol_modal import ProtocolSelectModal
+    from ..modals.spawn_modal import SpawnInputModal
     from ..mode_controller import ModeController
     from ..themes import c
+    from ..widgets.activity_log import ActivityLog
+    from ..widgets.analyzer_finding_detail import AnalyzerFindingDetailWidget
+    from ..widgets.analyzer_panel import AnalyzerPanel
+    from ..widgets.filter_bar import FilterBar
+    from ..widgets.findings_filter_bar import FindingsFilterBar
+    from ..widgets.findings_list import FindingsListWidget
+    from ..widgets.flow_detail import FlowDetailWidget
+    from ..widgets.flow_list import FlowListWidget
+    from ..widgets.menu_panel import MenuPanel
+    from ..widgets.status_bar import StatusBar
+    from ..wizard import CaptureWizard, PcapToTapWizard
 
     def _needs_reparse(flow, summary) -> bool:
         """Check if a flow should be re-parsed with current parser code.
@@ -199,8 +199,10 @@ if TEXTUAL_AVAILABLE:
             to swap in a freshly decrypted .tap produced from a capture.
             """
             from pathlib import Path
-            from ..replay_controller import ReplayController
+
             from friTap.flow.models import Flow, FlowState
+
+            from ..replay_controller import ReplayController
 
             self._replay_file = path
             filename = Path(path).name
@@ -244,8 +246,8 @@ if TEXTUAL_AVAILABLE:
             self._update_capture_indicator()
 
             # Populate flow list from summaries
-            from friTap.parsers.base import ParseResult
             from friTap.flow.reparse import reparse_flow
+            from friTap.parsers.base import ParseResult
             flow_list = self.query_one("#flow-list", FlowListWidget)
             for summary in self._replay_ctrl.get_summaries():
                 flow = Flow(
@@ -390,6 +392,7 @@ if TEXTUAL_AVAILABLE:
             Returns ``None`` (after notifying) when the pcap is missing.
             """
             import os
+
             from friTap.output.keylog_paths import split_keylog_path
 
             if not pcap or not os.path.isfile(pcap):
@@ -516,13 +519,15 @@ if TEXTUAL_AVAILABLE:
             try:
                 if protocol == "signal":
                     from friTap.offline.signal import (
-                        signal_backend_available, SIGNAL_DEPENDENCY_HINT,
+                        SIGNAL_DEPENDENCY_HINT,
+                        signal_backend_available,
                     )
                     if not signal_backend_available():
                         self.app.notify(SIGNAL_DEPENDENCY_HINT, severity="warning")
                 elif protocol == "mtproto":
                     from friTap.offline.mtproto import (
-                        mtproto_backend_available, MTPROTO_DEPENDENCY_HINT,
+                        MTPROTO_DEPENDENCY_HINT,
+                        mtproto_backend_available,
                     )
                     if not mtproto_backend_available():
                         self.app.notify(MTPROTO_DEPENDENCY_HINT, severity="warning")
@@ -542,6 +547,7 @@ if TEXTUAL_AVAILABLE:
         def _decrypt_worker(self, args: dict) -> None:
             """Worker body: convert the pcap, then return to the UI thread."""
             from textual.worker import get_current_worker
+
             from friTap.offline.pcap_to_tap import convert_pcap_to_tap
 
             worker = get_current_worker()

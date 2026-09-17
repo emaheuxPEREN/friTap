@@ -1,8 +1,8 @@
 """Fallback parser that wraps raw bytes into ParseResult."""
 
 from friTap.constants import PROTOCOL_QUIC_UNPROCESSED
-from .base import BaseParser, ParseResult
 
+from .base import BaseParser, ParseResult
 
 # Known QUIC version identifiers
 _QUIC_VERSIONS = frozenset({

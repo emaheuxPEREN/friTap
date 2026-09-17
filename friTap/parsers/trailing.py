@@ -22,9 +22,9 @@ def detect_trailing_protocol(data: bytes) -> tuple[str, bytes, BaseParser | None
     Returns ``(protocol_name, cleaned_data, parser_instance)``
     or ``("", data, None)`` if nothing matched.
     """
-    from .registry import get_default_registry
-    from .hexdump import HexdumpParser
     from .boundary_scan import scan_protocol_boundary
+    from .hexdump import HexdumpParser
+    from .registry import get_default_registry
 
     registry = get_default_registry()
 

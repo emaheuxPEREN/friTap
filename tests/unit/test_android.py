@@ -6,9 +6,10 @@ device detection, and Android SSL library handling.
 """
 
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from friTap.android import Android, ADB
+from friTap.android import ADB, Android
+
 
 # Helper to set up an Android object to an expected state
 def configured_android(*,
@@ -541,7 +542,7 @@ class TestADBElevatorAndFind:
         assert ADB()._elevator("id -u") == "id -u"
 
     def test_subclass_elevators_elevate(self):
-        from friTap.android import RootADB, SuADB, MagiskADB
+        from friTap.android import MagiskADB, RootADB, SuADB
         assert RootADB()._elevator("id -u") == "id -u"
         assert SuADB()._elevator("id -u") == "su 0 id -u"
         assert MagiskADB()._elevator("id -u") == "su -c 'id -u'"

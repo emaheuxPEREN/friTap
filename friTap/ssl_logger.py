@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Backward-compatibility shim. New code should use CoreController + Session.
 
@@ -11,10 +10,11 @@
 # its own use; we mirror them here so unittest.mock.patch can target them
 # at the documented entry-point path. Removing these breaks every test
 # that uses ``patch("friTap.ssl_logger.frida.X")``.
-import frida
 import logging
 
+import frida
+
 from .constants import SSL_READ, SSL_WRITE, ContentType
-from .legacy.ssl_logger_core import SSL_Logger, get_addr_string, _PluginSessionShim
+from .legacy.ssl_logger_core import SSL_Logger, _PluginSessionShim, get_addr_string
 
 __all__ = ["SSL_Logger", "SSL_READ", "SSL_WRITE", "ContentType", "get_addr_string", "_PluginSessionShim", "frida", "logging"]

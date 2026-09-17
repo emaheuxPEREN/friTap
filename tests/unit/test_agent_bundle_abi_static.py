@@ -29,7 +29,6 @@ import pytest
 from friTap.constants import AGENT_ABI_VERSION
 from friTap.legacy.ssl_logger_core import SSL_Logger
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUNDLE_PATH = REPO_ROOT / "friTap" / "fritap_agent.js"
 GENERATED_CONSTANTS = REPO_ROOT / "agent" / "shared" / "generated_constants.ts"

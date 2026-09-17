@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the just-landed layer-stack routing + synthetic-flow features.
 
@@ -31,7 +30,6 @@ from friTap.flow.reparse import reparse_flow
 from friTap.flow.tap_format import decode_flow, encode_flow
 from friTap.parsers.base import ParseResult
 from friTap.parsers.varint import encode_varint
-
 
 # ---------------------------------------------------------------------------
 # Helpers

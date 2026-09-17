@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Tests for the keylog routing branch of :class:`OutputHandlerFactory`."""
 
@@ -12,11 +11,14 @@ _SIGNAL_AVAILABLE = importlib.util.find_spec("friTap.offline.signal") is not Non
 
 from friTap.config import FriTapConfig, OutputConfig  # noqa: E402
 from friTap.events import EventBus, KeylogEvent  # noqa: E402
-from friTap.output.factory import OutputHandlerFactory, _active_keylog_formatters  # noqa: E402
+from friTap.output.factory import (  # noqa: E402
+    OutputHandlerFactory,
+    _active_keylog_formatters,
+)
 from friTap.output.keylog_handler import KeylogOutputHandler  # noqa: E402
 from friTap.protocols.registry import create_default_registry  # noqa: E402
-from friTap.protocols.tls_handler import TlsKeylogFormatter  # noqa: E402
 from friTap.protocols.ssh_handler import SshKeylogFormatter  # noqa: E402
+from friTap.protocols.tls_handler import TlsKeylogFormatter  # noqa: E402
 
 
 @pytest.fixture

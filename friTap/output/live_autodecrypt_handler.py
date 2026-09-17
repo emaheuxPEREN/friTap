@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Live auto-decrypt handler: raw capture + TLS keys → PCAPNG FIFO.
 
@@ -18,20 +17,21 @@ from __future__ import annotations
 import logging
 import os
 import struct
-
-from friTap.constants import build_infrastructure_bpf
 import subprocess
 import tempfile
 import threading
 import time
-from typing import IO, List, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, List, Optional
+
+from friTap.constants import build_infrastructure_bpf
 
 from .base import OutputHandler
 
 if TYPE_CHECKING:
     from ..events import EventBus, KeylogEvent
 
-from .pcapng_blocks import BT_SHB, BT_IDB, BT_EPB, BT_DSB, TLS_KEY_LOG, pad4 as _pad4
+from .pcapng_blocks import BT_DSB, BT_EPB, BT_IDB, BT_SHB, TLS_KEY_LOG
+from .pcapng_blocks import pad4 as _pad4
 
 # Link types
 LINKTYPE_ETHERNET = 1
@@ -258,7 +258,8 @@ class LiveAutoDecryptHandler(OutputHandler):
 
     def _capture_local_scapy(self) -> None:
         """Capture using scapy L2listen + sniff."""
-        from scapy.all import conf, ETH_P_ALL, sniff as scapy_sniff
+        from scapy.all import ETH_P_ALL, conf
+        from scapy.all import sniff as scapy_sniff
 
         self._write_idb(LINKTYPE_ETHERNET)
         self._logger.info("Local capture started (scapy)")
@@ -289,14 +290,17 @@ class LiveAutoDecryptHandler(OutputHandler):
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
             )
         except FileNotFoundError:
+            from ..fritap_utility import libpcap_provider_hint
             self._logger.error(
-                "Neither scapy nor tcpdump available. "
-                "Install scapy (pip install scapy) or tcpdump, and ensure sufficient permissions."
+                "Local raw-packet capture is unavailable: scapy could not open a "
+                "layer-2 socket and no 'tcpdump' binary was found. %s",
+                libpcap_provider_hint(),
             )
             return
         except PermissionError:
+            from ..fritap_utility import libpcap_provider_hint
             self._logger.error(
-                "Permission denied running tcpdump. Run with sudo or grant capture permissions."
+                "Permission denied starting tcpdump. %s", libpcap_provider_hint()
             )
             return
 

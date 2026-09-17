@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 MenuPanel widget for friTap TUI.
@@ -15,8 +14,8 @@ from contextlib import contextmanager
 from typing import List, Tuple
 
 try:
-    from textual.reactive import reactive
     from textual.containers import ScrollableContainer
+    from textual.reactive import reactive
     from textual.widgets import Static
     TEXTUAL_AVAILABLE = True
 except ImportError:

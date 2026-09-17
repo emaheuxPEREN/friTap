@@ -24,8 +24,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from friTap.analysis import analyze_tap
 from friTap.analysis.ioc import IocAnalyzer
 from friTap.analysis.reporters import (
-    JsonReporter,
     CsvReporter,
+    JsonReporter,
     MarkdownReporter,
     TableReporter,
 )

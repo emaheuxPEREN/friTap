@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """TCP session state tracker and IP/TCP packet construction for PCAPNG output.
 

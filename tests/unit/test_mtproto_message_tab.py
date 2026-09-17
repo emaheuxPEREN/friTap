@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for MTProto/Telegram TUI refinement (Message tab + Method column).
 
@@ -24,16 +23,14 @@ from __future__ import annotations
 
 import pytest
 
-from friTap.flow.models import Flow, FlowSummary
-from friTap.flow.layers import MtprotoLayer, TelegramE2ELayer
 from friTap.flow import display
-
+from friTap.flow.layers import MtprotoLayer, TelegramE2ELayer
+from friTap.flow.models import Flow, FlowSummary
 
 # ---------------------------------------------------------------------------
 # Fake RichLog — renders each write() (markup string OR Rich renderable, e.g. a
 # chat-bubble Table/Panel) to visible text so substring assertions work.
 # ---------------------------------------------------------------------------
-
 from tests.unit._render_helpers import RenderingFakeLog as _FakeLog
 
 
@@ -277,7 +274,9 @@ def test_l_key_opens_raw_layer_view_from_message_tab():
     """Pressing 'l' off the Layers tab switches to it (landing on the
     message-bearing layer); on the Layers tab it flips parsed/hex."""
     from friTap.tui.widgets.flow_detail import (
-        FlowDetailWidget, _TAB_MESSAGE, _TAB_LAYERS,
+        _TAB_LAYERS,
+        _TAB_MESSAGE,
+        FlowDetailWidget,
     )
     w = FlowDetailWidget.__new__(FlowDetailWidget)
     flow = _mtproto_flow([{"direction": "read", "kind": "text", "body": "hi"}])

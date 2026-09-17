@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Resolution of the spawn target argv for LOCAL spawns.
 
@@ -32,7 +31,6 @@ import logging
 import os
 import shutil
 from typing import List, Optional, Sequence
-
 
 __all__ = ["resolve_spawn_target"]
 

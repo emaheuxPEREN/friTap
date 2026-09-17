@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 eBPF instrumentation backend (stub).
@@ -19,6 +18,7 @@ Limitations:
 """
 
 from __future__ import annotations
+
 import logging
 from typing import Any, Callable
 

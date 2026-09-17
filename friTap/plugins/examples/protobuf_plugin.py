@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Example protobuf plugin — auto-decode protobuf/gRPC payloads in flow detail.
@@ -14,16 +13,16 @@ protobuf structures for both request and response bodies.
 import logging
 from typing import TYPE_CHECKING
 
-from friTap.plugins.base import FriTapPlugin
-from friTap.events import FlowEvent, EventBus
+from friTap.events import EventBus, FlowEvent
 from friTap.parsers.protobuf import (
     decode_raw,
-    format_message,
     extract_grpc_messages,
+    format_message,
     is_grpc_content_type,
     is_likely_protobuf,
     is_protobuf_content_type,
 )
+from friTap.plugins.base import FriTapPlugin
 
 if TYPE_CHECKING:
     from friTap.flow.models import Flow

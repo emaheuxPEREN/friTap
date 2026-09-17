@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Base class for friTap plugins.
@@ -12,10 +11,9 @@ Plugins extend friTap with custom functionality like:
 """
 
 from __future__ import annotations
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
 
-from typing import Protocol, runtime_checkable
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from ..events import FriTapEvent

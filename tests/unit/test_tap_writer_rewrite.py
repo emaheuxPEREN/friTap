@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Regression lock for the offline early-write fix.
 
@@ -13,10 +12,10 @@ state, and that the writer collapses the duplicate flow_id at close.
 
 from __future__ import annotations
 
-from friTap.flow.models import Flow
 from friTap.flow.layers import SignalLayer
-from friTap.flow.tap_writer import TapWriter
+from friTap.flow.models import Flow
 from friTap.flow.tap_reader import TapReader
+from friTap.flow.tap_writer import TapWriter
 
 
 def _signal_flow():
@@ -90,8 +89,8 @@ def test_flow_summary_carries_transport(tmp_path):
 
 def test_flow_summary_from_flow_copies_transport():
     """Both FlowSummary shapes copy Flow.transport on construction."""
-    from friTap.flow.tap_format import FlowSummary as TapSummary
     from friTap.flow.models import FlowSummary as LiveSummary
+    from friTap.flow.tap_format import FlowSummary as TapSummary
 
     flow, _ = _signal_flow()
     assert TapSummary.from_flow(flow).transport == "signal"

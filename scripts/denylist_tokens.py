@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """Name-free reveal-token denylist: generator + scanner (friTap tiering §F L1).
 
 The public repo must never *enumerate* the private reveal-tokens, yet the leak
@@ -21,6 +20,7 @@ Usage:
          (exit 0 = clean; exit 2 = at least one denylist hash matched)
 """
 from __future__ import annotations
+
 import hashlib
 import os
 import re

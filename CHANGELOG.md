@@ -32,6 +32,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     silently.
 
 ### Fixed
+  - **Cap frida below 17.16.0 on Python 3.10** — it imports `typing.NotRequired`
+    (3.11+) while still declaring `Requires-Python: >=3.7`.
+  - **Pinned ruff and declared the lint rule set in `pyproject.toml`** — ruff 0.16
+    expanded its default rules from 59 to 413.
   - **The Apple BoringSSL keylog offset is now derived from the target's own binary**
     rather than looked up in a version ladder whose open `> 1979.1` catch-all pinned
     every release from the iOS-17 era onward to a single frozen offset, which

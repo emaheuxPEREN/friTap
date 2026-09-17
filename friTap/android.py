@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
-from os.path import exists as file_exists
-from functools import cached_property, wraps
-import os
-from .backends import get_backend, BackendInvalidArgumentError
-import subprocess
-import shlex
-import re
 import logging
-from .fritap_utility import Failure
+import os
+import re
+import shlex
+import subprocess
+from functools import cached_property, wraps
+from os.path import exists as file_exists
+
+from .backends import BackendInvalidArgumentError, get_backend
 from .constants import build_infrastructure_bpf
+from .fritap_utility import Failure
 
 
 class Android:

@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """JSON session output handler."""
 
 from __future__ import annotations
+
 import json
 import logging
 from datetime import datetime, timezone
-from typing import IO, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Optional
 
 from .base import OutputHandler
 
 if TYPE_CHECKING:
     from ..events import (
-        EventBus, KeylogEvent, DatalogEvent, SessionEvent, ErrorEvent,
+        DatalogEvent,
+        ErrorEvent,
+        EventBus,
+        KeylogEvent,
         LibraryDetectedEvent,
+        SessionEvent,
     )
 
 
@@ -41,8 +45,11 @@ class JsonOutputHandler(OutputHandler):
 
     def setup(self, event_bus: "EventBus") -> None:
         from ..events import (
-            KeylogEvent, DatalogEvent, SessionEvent, ErrorEvent,
+            DatalogEvent,
+            ErrorEvent,
+            KeylogEvent,
             LibraryDetectedEvent,
+            SessionEvent,
         )
         try:
             self._file = open(self._path, "w")

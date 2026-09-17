@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 LegacyCustomScriptPlugin — wraps the --custom_script CLI flag as a ScriptPlugin.
@@ -9,13 +8,14 @@ Frida JS script via the command line.
 """
 
 from __future__ import annotations
+
 import logging
 import os
 import pprint
 import signal
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, Optional
 
-from .script_plugin import ScriptPlugin, ScriptLoadOrder
+from .script_plugin import ScriptLoadOrder, ScriptPlugin
 
 if TYPE_CHECKING:
     from .script_context import ScriptContext

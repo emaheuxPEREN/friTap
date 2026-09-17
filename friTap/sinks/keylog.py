@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Keylog file sink for friTap pipeline."""
 
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -11,7 +11,7 @@ from ..output.dedup import KeyDeduplicator
 from ..output.formatters import write_keylog_line
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class KeylogFileSink:

@@ -15,25 +15,25 @@ Usage::
     frames = strip_grpc_frame(grpc_body)
 """
 
-from .wire import (
-    decode_raw,
-    decode_varint,
-    format_message,
-    is_likely_protobuf,
-    ProtobufField,
-    ProtobufMessage,
-    WireType,
-)
 from .grpc import (
+    PROTOBUF_CONTENT_TYPES,
+    GrpcFrame,
     extract_grpc_messages,
     is_grpc_content_type,
     is_grpc_frame,
     is_protobuf_content_type,
-    PROTOBUF_CONTENT_TYPES,
     strip_grpc_frame,
-    GrpcFrame,
 )
 from .processor import ProtobufProcessor
+from .wire import (
+    ProtobufField,
+    ProtobufMessage,
+    WireType,
+    decode_raw,
+    decode_varint,
+    format_message,
+    is_likely_protobuf,
+)
 
 __all__ = [
     # Wire format

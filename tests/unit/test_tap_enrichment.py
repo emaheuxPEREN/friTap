@@ -10,9 +10,9 @@ import json
 from friTap.analysis import Finding, Severity
 from friTap.flow.models import Flow, FlowChunk, FlowState, TlsMetadata
 from friTap.flow.tap_format import (
+    _MAX_EVIDENCE_STR,
     FLOW_SCHEMA_VERSION,
     FORMAT_VERSION,
-    _MAX_EVIDENCE_STR,
     TapMeta,
     _bound_finding_dict,
     decode_finding_record,
@@ -26,7 +26,6 @@ from friTap.flow.tap_format import (
 from friTap.flow.tap_reader import TapReader
 from friTap.flow.tap_writer import TapWriter
 from friTap.parsers.base import ParseResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers

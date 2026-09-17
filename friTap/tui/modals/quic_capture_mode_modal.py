@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 QUIC capture-mode selection modal for friTap TUI.
@@ -16,15 +15,16 @@ from typing import Optional
 try:
     from textual.app import ComposeResult
     from textual.binding import Binding
+    from textual.containers import Horizontal, Vertical
     from textual.widgets import Button, OptionList, Static
     from textual.widgets.option_list import Option
-    from textual.containers import Vertical, Horizontal
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     _MODE_MAP = {0: "stream", 1: "app-api"}

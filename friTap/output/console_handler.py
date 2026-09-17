@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Verbose console output handler."""
 
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
 from .base import OutputHandler
 from .dedup import KeyDeduplicator
-from .formatters import format_hexdump, format_data_header
+from .formatters import format_data_header, format_hexdump
 
 if TYPE_CHECKING:
-    from ..events import EventBus, KeylogEvent, DatalogEvent, ConsoleEvent
+    from ..events import ConsoleEvent, DatalogEvent, EventBus, KeylogEvent
 
 
 class ConsoleOutputHandler(OutputHandler):
@@ -24,7 +24,7 @@ class ConsoleOutputHandler(OutputHandler):
         self._logger = logging.getLogger("friTap")
 
     def setup(self, event_bus: "EventBus") -> None:
-        from ..events import KeylogEvent, DatalogEvent, ConsoleEvent
+        from ..events import ConsoleEvent, DatalogEvent, KeylogEvent
         if self._verbose:
             event_bus.subscribe(KeylogEvent, self.on_keylog)
             event_bus.subscribe(DatalogEvent, self.on_data)

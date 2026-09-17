@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """TUI spawn-argv tests (issue #66 follow-up, TUI leg).
 
@@ -22,7 +21,6 @@ from friTap.tui.capture_controller import (  # noqa: E402
     CaptureController,
     _tokenize_spawn_command,
 )
-
 
 # ---- the tokenizer -------------------------------------------------------
 

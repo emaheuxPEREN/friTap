@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """In-memory TLS key collector for later DSB injection.
 
@@ -14,8 +13,9 @@ all keys for the single end-of-session flush in pcap.py.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from .base import OutputHandler
 from .dedup import KeyDeduplicator

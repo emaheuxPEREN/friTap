@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Configuration dataclasses for friTap.
@@ -9,6 +8,7 @@ validated configuration objects.
 """
 
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Generate TypeScript interfaces from Pydantic agent message schemas.
@@ -26,12 +25,12 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from friTap.schemas.agent_messages import (  # noqa: E402
     ConnectionLifecycleMessage,
-    ConsoleMessage,
-    ConsoleDevMessage,
     ConsoleDebugMessage,
-    ConsoleInfoMessage,
-    ConsoleWarnMessage,
+    ConsoleDevMessage,
     ConsoleErrorMessage,
+    ConsoleInfoMessage,
+    ConsoleMessage,
+    ConsoleWarnMessage,
     DatalogMessage,
     IPSecChildSAKeysMessage,
     IPSecIKEKeysMessage,
@@ -39,9 +38,9 @@ from friTap.schemas.agent_messages import (  # noqa: E402
     LibraryDetectedMessage,
     NetlogMessage,
     OhttpPlaintextMessage,
-    SSHNewKeysMessage,
-    SSHKeyMessage,
     SSHKeylogMessage,
+    SSHKeyMessage,
+    SSHNewKeysMessage,
 )
 
 OUTPUT_PATH = PROJECT_ROOT / "agent" / "schemas" / "messages.ts"
@@ -65,9 +64,11 @@ SHARED_CONSTANTS_HEADER = """\
 
 # Direct imports — Python is the source of truth for these constants.
 # ImportError at load time is better than getattr at generation time.
-from friTap.connection_index import DUMMY_SESSION_ID_BASE as _DUMMY_SESSION_ID_BASE  # noqa: E402
-from friTap.constants import INFRASTRUCTURE_PORTS as _INFRASTRUCTURE_PORTS  # noqa: E402
+from friTap.connection_index import (  # noqa: E402
+    DUMMY_SESSION_ID_BASE as _DUMMY_SESSION_ID_BASE,
+)
 from friTap.constants import AGENT_ABI_VERSION as _AGENT_ABI_VERSION  # noqa: E402
+from friTap.constants import INFRASTRUCTURE_PORTS as _INFRASTRUCTURE_PORTS  # noqa: E402
 
 # (ts_export_name, python_value)
 SHARED_CONSTANTS: list[tuple[str, object]] = [

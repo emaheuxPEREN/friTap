@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Integration tests for the Flow <-> protocol-layer-stack wiring.
 
@@ -14,8 +13,8 @@ import copy
 
 import pytest
 
+from friTap.flow.layers import QuicLayer, SshLayer, TlsLayer
 from friTap.flow.models import Flow, FlowChunk, TlsMetadata
-from friTap.flow.layers import TlsLayer, QuicLayer, SshLayer
 
 
 def _flow_with_chunks() -> Flow:

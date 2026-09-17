@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 import argparse
+import atexit
+import logging
 import re
 import sys
-from .backends import (
-    BackendTransportError,
-    BackendTimedOutError,
-    BackendProcessNotFoundError,
-    BackendProcessNotRespondingError,
-    BackendPermissionDeniedError,
-    BackendNotRunningError,
-    BackendInvalidArgumentError,
-    BackendInvalidOperationError,
-    BackendScriptLoadTimeout,
-)
-import logging
+import threading
 import time
 import traceback
-import threading
-import atexit
+
+from .backends import (
+    BackendInvalidArgumentError,
+    BackendInvalidOperationError,
+    BackendNotRunningError,
+    BackendPermissionDeniedError,
+    BackendProcessNotFoundError,
+    BackendProcessNotRespondingError,
+    BackendScriptLoadTimeout,
+    BackendTimedOutError,
+    BackendTransportError,
+)
 
 try:
     import colorama
@@ -33,13 +33,19 @@ except ImportError:
     # Create a dummy exception for testing environments
     class FridaBasedException(Exception):
         pass
-from .about import __version__
-from .about import __author__
-from .ssl_logger import SSL_Logger
-from .config import FriTapConfig, UnsupportedProtocolBackendError
-from .inspector import LibraryInspector
+from .about import __author__, __version__
 from .backends.base import BackendName
-from .fritap_utility import get_pid_of_lsass, are_we_running_on_windows, setup_fritap_logging, Success, Failure, FriTapExit
+from .config import FriTapConfig, UnsupportedProtocolBackendError
+from .fritap_utility import (
+    Failure,
+    FriTapExit,
+    Success,
+    are_we_running_on_windows,
+    get_pid_of_lsass,
+    setup_fritap_logging,
+)
+from .inspector import LibraryInspector
+from .ssl_logger import SSL_Logger
 
 
 def _repair_shadowed_package_path():
@@ -546,7 +552,7 @@ Offline (read / analyze .tap):
                            "'module:Class'). Repeatable to load several analyzers.")
     args.add_argument("--list-analyzers", required=False, action="store_true", default=False,
                       help="List available analyzers (built-in + discovered externals) and exit.")
-    args.add_argument('--version', action='version',version='friTap v{version}'.format(version=__version__))
+    args.add_argument('--version', action='version',version=f'friTap v{__version__}')
     # The parser is built with add_help=False, so the help action has to be
     # registered explicitly. Without it, `fritap --help` would only "work" as a
     # side effect of error() printing the help text -- and error() must exit 2
@@ -869,7 +875,10 @@ Offline (read / analyze .tap):
     # capture intent and the modern agent path) with the handler, out of the
     # generic parser and out of the public core. Meta values ('all'/'auto') and
     # unknown names have no single handler -> skipped.
-    from friTap.protocols.registry import available_protocol_names, create_default_registry
+    from friTap.protocols.registry import (
+        available_protocol_names,
+        create_default_registry,
+    )
     if parsed.protocol in available_protocol_names():
         try:
             _selected_handler = create_default_registry([parsed.protocol]).get(parsed.protocol)

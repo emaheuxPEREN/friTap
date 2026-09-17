@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Findings filter modal for friTap TUI.
@@ -34,6 +33,7 @@ class FindingFilterResult:
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     class FindingsFilterModal(FriTapModal[Optional[FindingFilterResult]]):

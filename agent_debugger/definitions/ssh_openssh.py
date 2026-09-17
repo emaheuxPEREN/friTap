@@ -28,10 +28,10 @@ Struct layout reference (OpenSSH 9.x / 10.x):
     };
 """
 from .base import (
-    StructField,
-    StructExtraction,
     BreakpointSpec,
     ExtractionDefinition,
+    StructExtraction,
+    StructField,
 )
 
 # --- sshenc struct fields (OpenSSH 9.x / 10.x) ---

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 from friTap.analysis import Finding, Severity
 from friTap.parsers.protobuf import (
     decode_raw,
-    format_message,
     extract_grpc_messages,
+    format_message,
     is_grpc_content_type,
     is_likely_protobuf,
     is_protobuf_content_type,

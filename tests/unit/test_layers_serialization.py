@@ -12,13 +12,12 @@ import json
 from friTap.flow.layers import AppLayer
 from friTap.flow.models import Flow, FlowChunk, FlowState, TlsMetadata
 from friTap.flow.tap_format import (
-    FLOW_SCHEMA_VERSION,
     _META_LEN,
+    FLOW_SCHEMA_VERSION,
     decode_flow,
     encode_flow,
 )
 from friTap.parsers.base import ParseResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 ActivityLog widget for friTap TUI.
@@ -15,8 +14,8 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 try:
-    from textual.widgets import RichLog
     from rich.text import Text
+    from textual.widgets import RichLog
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False

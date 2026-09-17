@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Capture mode configuration modal for friTap TUI.
@@ -15,14 +14,15 @@ from typing import Optional
 
 try:
     from textual.app import ComposeResult
+    from textual.containers import Horizontal, Vertical
     from textual.widgets import Button, Input, Static
-    from textual.containers import Vertical, Horizontal
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     _MODE_DESCRIPTIONS = {

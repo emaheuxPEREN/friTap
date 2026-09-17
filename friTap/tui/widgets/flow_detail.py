@@ -11,25 +11,30 @@ if TYPE_CHECKING:
     from friTap.flow.models import Flow
 
 try:
-    from textual.widgets import Static, RichLog, TabbedContent, TabPane
+    from textual.binding import Binding
     from textual.containers import Vertical
     from textual.message import Message
-    from textual.binding import Binding
+    from textual.widgets import RichLog, Static, TabbedContent, TabPane
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
-from rich.markup import escape as _markup_escape
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich.box import ROUNDED
-from rich.rule import Rule
 from collections import Counter
 
+from rich.box import ROUNDED
+from rich.markup import escape as _markup_escape
+from rich.panel import Panel
+from rich.rule import Rule
+from rich.table import Table
+from rich.text import Text
+
 from friTap.flow.models import format_byte_size
+from friTap.tui.modals.body_processing_modal import (
+    BodyProcessingModal,
+    BodyProcessingResult,
+)
 from friTap.tui.themes import c
-from friTap.tui.modals.body_processing_modal import BodyProcessingModal, BodyProcessingResult
+
 
 def _is_text(data: bytes) -> bool:
     """Check if data is printable UTF-8 text."""
@@ -86,6 +91,7 @@ def _get_header(headers: dict, name: str) -> str:
 
 if TEXTUAL_AVAILABLE:
     from datetime import datetime
+
     from friTap.flow.models import FlowState
 
     # Tab pane IDs — plain strings to avoid str-enum repr issues with Textual
@@ -585,8 +591,8 @@ if TEXTUAL_AVAILABLE:
         def action_save_body(self) -> None:
             """Save the active tab's body (request or response) to a file."""
             from friTap.flow.http_utils import (
-                parse_content_disposition_filename,
                 filename_from_url,
+                parse_content_disposition_filename,
                 sanitize_filename,
             )
 
@@ -2083,7 +2089,11 @@ if TEXTUAL_AVAILABLE:
 
         def _decode_protobuf(self, log: RichLog, body: bytes, headers: dict) -> None:
             try:
-                from friTap.parsers.protobuf import decode_raw, format_message, extract_grpc_messages
+                from friTap.parsers.protobuf import (
+                    decode_raw,
+                    extract_grpc_messages,
+                    format_message,
+                )
                 content_type = _get_header(headers, "content-type")
                 grpc_msgs = extract_grpc_messages(body, content_type)
                 if grpc_msgs:
@@ -2163,7 +2173,7 @@ if TEXTUAL_AVAILABLE:
             if len(raw) < 9:
                 return
             try:
-                from friTap.parsers.http2 import _FRAME_TYPE_NAMES, _FRAME_HEADER_SIZE
+                from friTap.parsers.http2 import _FRAME_HEADER_SIZE, _FRAME_TYPE_NAMES
                 length = int.from_bytes(raw[:3], "big")
                 frame_type = raw[3]
                 stream_id = int.from_bytes(raw[5:9], "big") & 0x7FFFFFFF

@@ -17,7 +17,7 @@ import json
 import struct
 import zlib
 from dataclasses import dataclass
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from friTap.flow.models import Flow
@@ -797,8 +797,8 @@ def _decode_layers(flow: "Flow", layers_meta: list, read_blob) -> None:
     Mirrored layers rebind their chunks view / parsed_field; owned inner layers
     restore their directional bytes from blobs and their inline parsed result.
     """
-    from friTap.flow.layers import AppLayer, LayerData
     from friTap.flow.layer_registry import get_registry
+    from friTap.flow.layers import AppLayer, LayerData
 
     registry = get_registry()
     flow.layers = []

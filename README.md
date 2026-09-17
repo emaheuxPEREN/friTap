@@ -4,7 +4,7 @@
 </div>
 
 # friTap
-![version](https://img.shields.io/badge/version-2.3.0-blue) [![PyPI version](https://d25lcipzij17d.cloudfront.net/badge.svg?id=py&r=r&ts=1683906897&type=6e&v=2.3.0&x2=0)](https://badge.fury.io/py/friTap) [![CI](https://github.com/fkie-cad/friTap/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fkie-cad/friTap/actions/workflows/ci.yml)
+![version](https://img.shields.io/badge/version-2.3.1-blue) [![PyPI version](https://d25lcipzij17d.cloudfront.net/badge.svg?id=py&r=r&ts=1683906897&type=6e&v=2.3.1&x2=0)](https://badge.fury.io/py/friTap) [![CI](https://github.com/fkie-cad/friTap/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fkie-cad/friTap/actions/workflows/ci.yml)
 [![Ruff](https://github.com/fkie-cad/friTap/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/fkie-cad/friTap/actions/workflows/lint.yml)
 [![Publish status](https://github.com/fkie-cad/friTap/actions/workflows/publish.yml/badge.svg?branch=main)](https://github.com/fkie-cad/friTap/actions/workflows/publish.yml)
 
@@ -249,6 +249,7 @@ caveats (notably: frida 15.x wheels target older Python versions).
 - hexdump, scapy, watchdog, rich, textual, pydantic, psutil, platformdirs, h11, hpack
 - tlsLibHunter, pylsqpack, zstandard, brotli (HTTP/2 + HTTP/3 + compression decoding)
 - AndroidFridaManager (for Android device management)
+- *optional:* Npcap (Windows) / libpcap (Linux, macOS) — only for `-f/--full_capture`.
 - for hooking on Android ensure that the `adb`-command is in your PATH
 
 

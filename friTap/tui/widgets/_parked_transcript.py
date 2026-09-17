@@ -38,6 +38,7 @@ from friTap.tui.themes import c
 
 if TYPE_CHECKING:
     from textual.widgets import RichLog
+
     from friTap.flow.models import Flow
 
 

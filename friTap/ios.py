@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """iOS crash-report retrieval and decoding.
 
@@ -25,8 +24,6 @@ anyway: retrieval goes exclusively through ``idevicecrashreport`` (usbmuxd), so
 no SSH/root shell on the device is required or attempted.
 """
 
-from dataclasses import dataclass, field
-from datetime import datetime
 import json
 import logging
 import os
@@ -35,6 +32,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------

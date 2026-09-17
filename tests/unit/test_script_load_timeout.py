@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the bounded agent script load (friTap discussion #65).
 
@@ -41,11 +40,13 @@ from friTap.backends.base import (
     BackendTransportError,
 )
 from friTap.backends.frida_backend import FridaBackend
-from tests.unit._log_helpers import LogCapture
 from friTap.config import FriTapConfig, effective_script_load_timeout
 from friTap.friTap import _process_not_responding_hints, _script_load_timeout_hints
 from friTap.legacy.ssl_logger_core import SSL_Logger
-
+from friTap.plugins.loader import PluginLoader
+from friTap.plugins.script_context import ScriptContext
+from friTap.plugins.script_plugin import ScriptLoadOrder, ScriptPlugin
+from tests.unit._log_helpers import LogCapture
 
 # The wedged-load simulation blocks on this event instead of sleeping, so the
 # abandoned daemon worker can be released in a finally block. Otherwise every
@@ -361,10 +362,6 @@ def test_load_script_bounded_passes_the_scaled_timeout_for_scan_heavy_config():
 # Unlike the main agent, a wedged plugin is *not* fatal: PluginLoader
 # swallows-and-logs, so friTap continues without that plugin.
 # ---------------------------------------------------------------------------
-
-from friTap.plugins.loader import PluginLoader
-from friTap.plugins.script_context import ScriptContext
-from friTap.plugins.script_plugin import ScriptPlugin, ScriptLoadOrder
 
 
 class _FakePlugin(ScriptPlugin):

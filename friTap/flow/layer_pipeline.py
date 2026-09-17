@@ -23,7 +23,7 @@ a generic ``push_layer`` are deferred to later phases.
 from __future__ import annotations
 
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from friTap.constants import (
     PROTOCOL_HTTP1,
@@ -35,8 +35,8 @@ from friTap.flow.decryptors import (
     DecryptorRegistry,
     get_default_decryptor_registry,
 )
-from friTap.flow.layers import AppLayer, ProtocolLayer
 from friTap.flow.layer_registry import ProtocolRegistry, get_registry
+from friTap.flow.layers import AppLayer, ProtocolLayer
 from friTap.parsers.registry import get_default_registry
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

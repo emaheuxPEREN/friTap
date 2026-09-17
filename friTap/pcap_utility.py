@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Filename-extension helper. Extension wins over output_format so a user
 who writes ``test.pcap`` always gets classic libpcap, even if an earlier

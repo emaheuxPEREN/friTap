@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Pattern loader for friTap.
@@ -9,10 +8,9 @@ pattern files for the hooking pipeline.
 """
 
 import json
+import logging
 import os
 import re
-import logging
-
 
 # Shared hex-pattern grammar: space-separated 2-char tokens, ``?``/``??`` wildcards
 # allowed (used by both the modern list schema and the legacy object schema).

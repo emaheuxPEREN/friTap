@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 ScriptPlugin — abstract base for plugins that inject Frida scripts.
@@ -10,17 +9,18 @@ Extends FriTapPlugin with a two-phase lifecycle:
 """
 
 from __future__ import annotations
+
 import logging
 from abc import abstractmethod
 from enum import Enum
-from typing import Any, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from ..backends.base import BackendScriptLoadTimeout
 from .base import FriTapPlugin
 
 if TYPE_CHECKING:
-    from .script_context import ScriptContext
     from ..session import Session
+    from .script_context import ScriptContext
 
 logger = logging.getLogger("friTap.plugins.script")
 

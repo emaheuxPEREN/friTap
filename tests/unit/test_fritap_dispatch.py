@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the pre-argparse special-mode dispatcher in ``friTap.friTap``.
 

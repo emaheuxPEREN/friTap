@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import operator as _op
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .ast_nodes import (
-    ASTNode, ComparisonNode, ExistenceNode,
-    AndNode, OrNode, NotNode,
+    AndNode,
+    ASTNode,
+    ComparisonNode,
+    ExistenceNode,
+    NotNode,
+    OrNode,
 )
 from .errors import FilterSyntaxError
 from .fields import FIELD_REGISTRY, is_canonical_only, is_field_prefix
-from .parser import parse_filter, collect_fields
+from .parser import collect_fields, parse_filter
 
 if TYPE_CHECKING:
     from friTap.flow.models import Flow

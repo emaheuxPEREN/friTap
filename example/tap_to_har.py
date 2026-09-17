@@ -23,8 +23,8 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from friTap.flow.tap_reader import TapReader
 from friTap.flow.models import Flow
+from friTap.flow.tap_reader import TapReader
 
 
 def _get_fritap_version() -> str:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Pydantic models for host -> agent configuration messages.
@@ -10,8 +9,10 @@ and runtime configuration phases.
 """
 
 from __future__ import annotations
-from pydantic import BaseModel
+
 from typing import Any, Dict, Literal
+
+from pydantic import BaseModel
 
 
 class AgentHandshakeConfig(BaseModel):

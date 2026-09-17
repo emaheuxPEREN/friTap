@@ -6,8 +6,7 @@ Helpers for Content-Disposition parsing, image detection, and filename extractio
 import re
 from pathlib import PurePosixPath
 from typing import Optional
-from urllib.parse import urlparse, unquote
-
+from urllib.parse import unquote, urlparse
 
 IMAGE_MIME_TYPES = frozenset({
     "image/png",

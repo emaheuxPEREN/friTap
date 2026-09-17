@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Frida instrumentation backend.
@@ -9,6 +8,7 @@ imports or references Frida directly.
 """
 
 from __future__ import annotations
+
 import functools
 import logging
 import os
@@ -36,7 +36,6 @@ from .base import (
     ProcessInfo,
     ThreadInfo,
 )
-
 
 # Mapping from frida exception types to backend exception types
 _EXCEPTION_MAP = {

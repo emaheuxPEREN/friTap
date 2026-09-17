@@ -18,7 +18,11 @@ _SIGNAL_AVAILABLE = importlib.util.find_spec("friTap.offline.signal") is not Non
 
 import friTap.api as api  # noqa: E402
 from friTap.events import (  # noqa: E402
-    EventBus, FlowEvent, KeylogEvent, MessageEvent, OhttpEvent,
+    EventBus,
+    FlowEvent,
+    KeylogEvent,
+    MessageEvent,
+    OhttpEvent,
 )
 from friTap.flow.collector import FlowCollector  # noqa: E402
 

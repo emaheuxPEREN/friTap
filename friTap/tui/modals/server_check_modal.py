@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Server check modal for friTap TUI wizard.
@@ -14,15 +13,16 @@ from typing import Optional
 
 try:
     from textual.app import ComposeResult
+    from textual.containers import Horizontal, Vertical
     from textual.reactive import reactive
     from textual.widgets import Button, Static
-    from textual.containers import Vertical, Horizontal
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
+
     from .base import FriTapModal
 
     class ServerCheckModal(FriTapModal[Optional[str]]):

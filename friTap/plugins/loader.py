@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Plugin discovery and loading."""
 
 from __future__ import annotations
+
 import importlib
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 import platformdirs
 
@@ -168,7 +168,7 @@ class PluginLoader:
 
         Results are sorted: BEFORE_MAIN first, then AFTER_MAIN.
         """
-        from .script_plugin import ScriptPlugin, ScriptLoadOrder
+        from .script_plugin import ScriptLoadOrder, ScriptPlugin
 
         plugins = [p for p in self._plugins.values() if isinstance(p, ScriptPlugin)]
 

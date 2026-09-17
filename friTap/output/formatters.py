@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Shared I/O formatting utilities for output handlers and sinks."""
 
 from __future__ import annotations
 
 from typing import IO
-
 
 try:
     from hexdump import hexdump as _hexdump

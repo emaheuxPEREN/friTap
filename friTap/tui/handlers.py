@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 TUI output handler bridging EventBus events to the Textual UI thread.
@@ -15,20 +14,20 @@ from typing import TYPE_CHECKING
 
 from textual.css.query import NoMatches
 
-from ..output.base import OutputHandler
-from ..fritap_utility import find_wireshark_binary
 from ..events import (
-    DatalogEvent,
-    KeylogEvent,
     ConsoleEvent,
-    ErrorEvent,
-    LibraryDetectedEvent,
-    SessionEvent,
+    DatalogEvent,
     DetachEvent,
-    LiveReadyEvent,
-    WiresharkConnectedEvent,
+    ErrorEvent,
+    KeylogEvent,
+    LibraryDetectedEvent,
     LiveConnectionFailedEvent,
+    LiveReadyEvent,
+    SessionEvent,
+    WiresharkConnectedEvent,
 )
+from ..fritap_utility import find_wireshark_binary
+from ..output.base import OutputHandler
 
 if TYPE_CHECKING:
     from ..events import EventBus

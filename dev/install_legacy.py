@@ -25,7 +25,6 @@ from pathlib import Path
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COMPAT = REPO_ROOT / "compat.yml"
 

@@ -6,11 +6,12 @@ This guide covers Windows-specific setup, considerations, and best practices for
 
 ### System Requirements
 
-- **Windows 10 or Windows 11** (64-bit recommended)
+- **Windows 10 or Windows 11** (x64 or ARM64)
 - **Administrator privileges** (required for most analysis)
 - **Python 3.10+** installed (`setup.py` sets `python_requires=">=3.10"`)
 - **Visual Studio Build Tools** (for some dependencies)
 - **Windows Subsystem for Linux (WSL)** (optional but recommended)
+- **Npcap** (*optional*): only needed for `-f/--full_capture` and live auto-decrypt local capture — **not** for `-k` (keylog) or `-p` (decrypted-payload pcap). See [Npcap](#npcap-optional--only-for--f--full_capture).
 
 ### Development Environment Setup
 
@@ -66,11 +67,22 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
 # Always run PowerShell/Command Prompt as Administrator
 ```
 
-### WinPcap/Npcap Installation
+### Npcap (optional — only for -f/--full_capture)
+
+!!! note "You usually do not need Npcap"
+    friTap writes its output pcap/pcapng itself, from the bytes the Frida agent
+    streams back — so **key extraction (`-k`) and decrypted-payload capture
+    (`-p`) work without any packet-capture driver**. A host libpcap provider
+    (Npcap) is required **only** for full raw capture (`-f/--full_capture`) and
+    live auto-decrypt *local* capture, which sniff the real network interface.
+
+    If you do not use those modes, you can ignore the historical
+    `WARNING: No libpcap provider available ! pcap won't be used` message — and
+    as of this release friTap suppresses it at startup anyway.
 
 ```powershell
-# Download and install Npcap (recommended over WinPcap)
-# https://nmap.org/npcap/
+# Download and install Npcap (only needed for -f/--full_capture)
+# https://npcap.com/
 
 # Verify installation
 Get-Service | Where-Object {$_.Name -like "*npcap*"}
@@ -78,6 +90,17 @@ Get-Service | Where-Object {$_.Name -like "*npcap*"}
 # Check network adapters
 Get-NetAdapter
 ```
+
+!!! warning "Windows on ARM (ARM64)"
+    Npcap **≥ 1.50** ships x86 and ARM64 DLLs but **no x64 build**. The provider
+    therefore only loads into a Python whose architecture matches an installed
+    DLL — use **native ARM64 Python** (recommended) or x86 Python. An **x64
+    Python running under emulation can never load Npcap's DLLs**, so `-f` will
+    fail there even with Npcap installed. Check your interpreter's architecture:
+
+    ```powershell
+    python -c "import platform; print(platform.machine())"   # ARM64 or AMD64/x86
+    ```
 
 ### Frida Installation
 
@@ -491,6 +514,16 @@ Get-WinEvent -LogName Application | Where-Object {$_.ProviderName -eq "Applicati
 ```
 
 ## Windows-Specific Troubleshooting
+
+### "No libpcap provider available" / `-f` fails
+
+As of this release friTap silences the cosmetic `WARNING: No libpcap provider
+available ! pcap won't be used` banner at startup, because it does not need a
+packet-capture driver for `-k`/`-p`. You will now only see a message about
+Npcap when you actually run `-f/--full_capture` (or live auto-decrypt local
+capture) without a usable provider — in which case friTap prints an actionable
+hint and exits. Install [Npcap](#npcap-optional--only-for--f--full_capture)
+(matching your Python architecture on ARM64) and re-run from an elevated shell.
 
 ### Permission Issues
 

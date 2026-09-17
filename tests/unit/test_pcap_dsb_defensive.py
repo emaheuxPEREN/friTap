@@ -118,7 +118,7 @@ class TestDsbGuardHappyPathStillWorks:
     def test_valid_source_emits_full_pcapng(self, tmp_path):
         # Build a valid 1-packet pcap to feed the happy path.
         try:
-            from scapy.all import Ether, IP, TCP, wrpcap
+            from scapy.all import IP, TCP, Ether, wrpcap
         except ImportError:
             pytest.skip("scapy not installed")
         src = tmp_path / "valid.pcap"

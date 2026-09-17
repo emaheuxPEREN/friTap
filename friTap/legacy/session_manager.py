@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Session lifecycle management for friTap.
@@ -9,12 +8,13 @@ signal handling, and cleanup.
 """
 
 from __future__ import annotations
+
 import json
+import logging
 import os
 import signal
 import sys
 import time
-import logging
 from typing import TYPE_CHECKING
 
 from ..backends.base import BackendName
@@ -38,7 +38,7 @@ class SessionManager:
 
     def start_session(self, own_message_handler=None):
         """Start a friTap capture session. Delegates to SSL_Logger internals."""
-        from ..backends import BackendNotRunningError, BackendInvalidArgumentError
+        from ..backends import BackendInvalidArgumentError, BackendNotRunningError
 
         logger = self._l
 

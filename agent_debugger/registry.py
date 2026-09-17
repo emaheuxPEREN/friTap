@@ -1,8 +1,15 @@
 """Registry for extraction definitions."""
 
-from typing import Dict, List, Optional, Tuple  # noqa: F401  # used in PEP 484 type comments
+from typing import (  # noqa: F401  # used in PEP 484 type comments
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 
-from .definitions.base import ExtractionDefinition  # noqa: F401  # used in PEP 484 type comments
+from .definitions.base import (
+    ExtractionDefinition,  # noqa: F401  # used in PEP 484 type comments
+)
 
 
 class ExtractionRegistry:

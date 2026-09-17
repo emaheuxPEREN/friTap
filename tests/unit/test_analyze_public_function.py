@@ -21,7 +21,6 @@ from friTap.flow.models import Flow, FlowChunk, FlowState
 from friTap.flow.tap_writer import TapWriter
 from friTap.parsers.base import ParseResult
 
-
 # A known AWS access key matching the CredentialAnalyzer pattern (AKIA + 16).
 AWS_KEY = "AKIAIOSFODNN7EXAMPLE"
 
@@ -236,6 +235,7 @@ def test_run_analyze_cli_exit_code_matches_report(tmp_path):
 def test_cli_resolve_error_is_classified_as_resolve(tmp_path, caplog):
     """A bad scanner name logs the resolve-stage diagnostic (not 'Analysis failed')."""
     import logging
+
     from friTap.commands.analyze import run_analyze_cli
 
     tap_file = _credential_tap(tmp_path)
@@ -250,6 +250,7 @@ def test_cli_analyze_error_is_classified_as_analysis(tmp_path, caplog, monkeypat
     """A ValueError raised during analysis (e.g. corrupt .tap) must log
     'Analysis failed', NOT be misclassified as a scanner-resolution problem."""
     import logging
+
     import friTap.commands.analyze as analyze_mod
 
     tap_file = _credential_tap(tmp_path)

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """tshark discovery, command building, and packet streaming for offline decryption.
 

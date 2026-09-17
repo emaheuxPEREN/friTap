@@ -1,39 +1,44 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
-from ..backends.base import BackendName, BackendScriptLoadTimeout, ScriptRuntime
-import tempfile
-import os
-import re
-import struct
-import socket
-import time
 import json
-import threading
-import queue
 import logging
+import os
+import queue
+import re
+import socket
+import struct
+import tempfile
+import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from ..pcap import PCAP
-from ..fritap_utility import setup_fritap_logging
+from typing import TYPE_CHECKING, List, NamedTuple, Optional, Tuple
+
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
+
 from ..about import __version__
+from ..backends.base import BackendName, BackendScriptLoadTimeout, ScriptRuntime
+from ..config import FriTapConfig, effective_script_load_timeout
+from ..constants import AGENT_ABI_VERSION, SSL_READ, SSL_WRITE
 from ..events import (
+    AntiTamperDetectedEvent,
+    DetachEvent,
     EventBus,
+    HookBreadcrumbEvent,
+    InstrumentEvent,
+    LibraryDetectedEvent,
+    PlatformReportEvent,
+    ScriptLoadedEvent,
     SessionEvent,
     SocketTraceEvent,
-    DetachEvent,
-    LibraryDetectedEvent,
-    InstrumentEvent,
-    ScriptLoadedEvent,
-    HookBreadcrumbEvent,
-    AntiTamperDetectedEvent,
-    PlatformReportEvent,
 )
-from ..config import FriTapConfig, effective_script_load_timeout
-from ..constants import SSL_READ, SSL_WRITE, AGENT_ABI_VERSION
-from dataclasses import dataclass
-from typing import List, NamedTuple, Optional, Tuple
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+from ..fritap_utility import setup_fritap_logging
+from ..pcap import PCAP
+
+if TYPE_CHECKING:
+    # Annotation-only; the runtime import stays function-local in _build_script_context.
+    from ..plugins.script_context import ScriptContext
 
 
 @dataclass(slots=True)
@@ -534,8 +539,8 @@ class SSL_Logger():
 
         # Setup handlers on event bus (non-blocking for live handler)
         from ..output import KeylogOutputHandler
-        from ..output.live_pcapng_handler import LivePcapngHandler
         from ..output.live_autodecrypt_handler import LiveAutoDecryptHandler
+        from ..output.live_pcapng_handler import LivePcapngHandler
         from ..output.live_wireshark_handler import LiveWiresharkHandler
         for handler in self._output_handlers:
             handler.setup(self._event_bus)
@@ -992,7 +997,9 @@ class SSL_Logger():
         writer = None
         try:
             from ..fritap_utility import (
-                open_debug_log, attach_file_handlers, get_debug_log_writer,
+                attach_file_handlers,
+                get_debug_log_writer,
+                open_debug_log,
             )
             log_path = open_debug_log()
             attach_file_handlers()
@@ -1143,7 +1150,7 @@ class SSL_Logger():
         if log_path:
             self.logger.error(f"Full crash report + hook activity written to: {log_path}")
         try:
-            from ..events import ErrorEvent, ERROR_SEVERITY_FATAL
+            from ..events import ERROR_SEVERITY_FATAL, ErrorEvent
             self._event_bus.emit(ErrorEvent(
                 error="Target process crashed",
                 description=headline,
@@ -1918,7 +1925,7 @@ class SSL_Logger():
     def _inject_proxy_redirector(self, process) -> None:
         """Inject fritap-proxy into the Frida session for connection redirect + pinning bypass."""
         try:
-            from fritap_proxy import ProxyRedirector, ProxyConfig, ProxyTarget
+            from fritap_proxy import ProxyConfig, ProxyRedirector, ProxyTarget
         except ImportError:
             raise RuntimeError(
                 "fritap-proxy package not installed. "
@@ -1995,7 +2002,8 @@ class SSL_Logger():
         """
         try:
             import traceback as _tb
-            from friTap.events import ErrorEvent, ERROR_SEVERITY_ERROR
+
+            from friTap.events import ERROR_SEVERITY_ERROR, ErrorEvent
             self._event_bus.emit(ErrorEvent(
                 error=f"{type(exc).__name__} in message router ({where})",
                 description=str(exc),
@@ -2082,9 +2090,9 @@ class SSL_Logger():
         try:
             from ..analysis import AnalyzerPlugin
             from ..analysis.registry import resolve_analyzers
+            from ..events import DatalogEvent, FlowEvent, OhttpEvent
             from ..flow.collector import FlowCollector
             from ..flow.models import FlowEventType
-            from ..events import DatalogEvent, OhttpEvent, FlowEvent
 
             # Forward reveal_pii so the privacy analyzer keeps raw values when
             # --scan-show-pii is set; other analyzers ignore the opt. Redaction
@@ -2164,8 +2172,8 @@ class SSL_Logger():
         if not self._scan_plugins:
             return
         try:
-            from ..commands.analyze import _REPORTER_REGISTRY
             from ..analysis.filtering import FindingFilter, apply, split_csv
+            from ..commands.analyze import _REPORTER_REGISTRY
 
             # Flush still-active flows so they complete and get enqueued.
             if self._flow_collector is not None:

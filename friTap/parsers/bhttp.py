@@ -12,7 +12,6 @@ from typing import Optional
 from .base import ParseResult
 from .varint import decode_varint
 
-
 _STATUS_TEXT = {
     100: "Continue", 101: "Switching Protocols", 103: "Early Hints",
     200: "OK", 201: "Created", 204: "No Content",

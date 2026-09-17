@@ -5,8 +5,8 @@ Provides standardized mock objects for Frida components,
 SSL libraries, and other friTap dependencies.
 """
 
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
-from typing import Dict, List, Any
 
 
 class MockFridaDevice:

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Message routing for friTap.
@@ -9,11 +8,23 @@ Routes agent message payloads to the EventBus as typed events.
 """
 
 from __future__ import annotations
+
 import logging
 
-from .events import EventBus, KeylogEvent, DatalogEvent, LibraryDetectedEvent, AntiTamperDetectedEvent, ConsoleEvent, SessionEvent, OhttpEvent, HookBreadcrumbEvent, PlatformReportEvent
-from .constants import SSL_READ, ContentType
 from .connection_index import resolve_connection_key
+from .constants import SSL_READ, ContentType
+from .events import (
+    AntiTamperDetectedEvent,
+    ConsoleEvent,
+    DatalogEvent,
+    EventBus,
+    HookBreadcrumbEvent,
+    KeylogEvent,
+    LibraryDetectedEvent,
+    OhttpEvent,
+    PlatformReportEvent,
+    SessionEvent,
+)
 from .ssl_logger import get_addr_string
 
 

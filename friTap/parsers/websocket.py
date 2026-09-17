@@ -18,8 +18,8 @@ import zlib
 from typing import Optional
 
 from friTap.constants import PROTOCOL_WEBSOCKET
-from .base import BaseParser, ParseResult
 
+from .base import BaseParser, ParseResult
 
 # RFC 6455 § 11.8 — opcode names
 _OPCODE_NAMES: dict[int, str] = {

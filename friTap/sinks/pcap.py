@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """PCAP output sink wrapping the existing PCAP class."""
 
 from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING
 
@@ -11,7 +11,7 @@ from ..schemas.canonical import Direction
 
 if TYPE_CHECKING:
     from ..pcap import PCAP
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 class PcapSink:

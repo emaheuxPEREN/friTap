@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 friTap — Frida-based encrypted-traffic interception and key extraction.
@@ -60,12 +59,12 @@ Usage:
     session = ctrl.create_session(FriTapConfig(target="com.example.app"))
 """
 
+from typing import TYPE_CHECKING
+
 # Version (read from .about, the single source of truth — see setup.py:25).
 # Kept EAGER: .about is pure-Python (no third-party deps), so ``import friTap``
 # and ``friTap.__version__`` stay cheap and dependency-free.
 from .about import __version__
-
-from typing import TYPE_CHECKING
 
 # --- Lazy public API (PEP 562 module __getattr__) -----------------------------
 # Every other public symbol is imported ON FIRST ACCESS instead of at package
@@ -181,61 +180,24 @@ def __dir__():
 
 
 if TYPE_CHECKING:  # static analysers / IDEs see the real symbols, no runtime cost
-    from .friTap import SSL_Logger
-    from .api import FriTap, FriTapSession
-    from .core import CoreController  # noqa: F401  (lazy re-export, not in __all__)
-    from .session import Session, SessionState  # noqa: F401  (lazy re-export, not in __all__)
-    from .config import FriTapConfig, DeviceConfig, OutputConfig, HookingConfig
-    from .events import (
-        EventBus,
-        FriTapEvent,
-        KeylogEvent,
-        DatalogEvent,
-        LibraryDetectedEvent,
-        SessionEvent,
-        ConsoleEvent,
-        ErrorEvent,
-        SocketTraceEvent,
-        DetachEvent,
-        FlowEvent,
-        MessageEvent,
-    )
-    from .pipeline import MessagePipeline, create_default_pipeline  # noqa: F401  (lazy re-export, not in __all__)
-    from .flow import (
-        Flow,
-        FlowChunk,
-        FlowState,
-        FlowEventType,
-        FlowSummary,
-        TapReader,
-        ReplayController,
-        IFlowSource,
-        TapMeta,
-    )
     from .analysis import (
-        Severity,
-        Finding,
+        AnalyzerPlugin,
         BaseAnalyzer,
+        Finding,
+        Severity,
         analyze_tap,
         analyze_tap_multi,
-        AnalyzerPlugin,
         severity_rank,
     )
     from .analysis.filtering import FindingFilter
     from .analysis.reporters import (
-        Reporter,
-        JsonReporter,
         CsvReporter,
+        JsonReporter,
         MarkdownReporter,
+        Reporter,
         TableReporter,
     )
-    from .parsers.protobuf import (
-        decode_raw,
-        format_message,
-        ProtobufMessage,
-        ProtobufField,
-        ProtobufProcessor,
-    )
+    from .api import FriTap, FriTapSession
     from .commands.analyze import (
         AnalyzeReport,
         analyze_tap_report,
@@ -243,10 +205,53 @@ if TYPE_CHECKING:  # static analysers / IDEs see the real symbols, no runtime co
         list_analyzers_detailed,
         list_report_formats,
     )
-    from .offline import convert_pcap_to_tap, ConvertResult, NoDecryptionKeysError
+    from .config import DeviceConfig, FriTapConfig, HookingConfig, OutputConfig
+    from .core import CoreController  # noqa: F401  (lazy re-export, not in __all__)
+    from .events import (
+        ConsoleEvent,
+        DatalogEvent,
+        DetachEvent,
+        ErrorEvent,
+        EventBus,
+        FlowEvent,
+        FriTapEvent,
+        KeylogEvent,
+        LibraryDetectedEvent,
+        MessageEvent,
+        SessionEvent,
+        SocketTraceEvent,
+    )
+    from .flow import (
+        Flow,
+        FlowChunk,
+        FlowEventType,
+        FlowState,
+        FlowSummary,
+        IFlowSource,
+        ReplayController,
+        TapMeta,
+        TapReader,
+    )
+    from .flow.layers import ProtocolLayer, QuicLayer, SshLayer, TlsLayer
+    from .friTap import SSL_Logger
+    from .offline import ConvertResult, NoDecryptionKeysError, convert_pcap_to_tap
     from .offline.pcap_to_tap import pcap_to_tap
-    from .flow.layers import ProtocolLayer, TlsLayer, QuicLayer, SshLayer
     from .parsers.base import ParseResult
+    from .parsers.protobuf import (
+        ProtobufField,
+        ProtobufMessage,
+        ProtobufProcessor,
+        decode_raw,
+        format_message,
+    )
+    from .pipeline import (  # noqa: F401  (lazy re-export, not in __all__)
+        MessagePipeline,
+        create_default_pipeline,
+    )
+    from .session import (  # noqa: F401  (lazy re-export, not in __all__)
+        Session,
+        SessionState,
+    )
 
 __all__ = [
     # --- Stable public API (covered by SemVer guarantees) ---

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for friTap's early-exit commands (``-ll`` / ``--extract-libraries``).
 
@@ -23,8 +22,8 @@ from __future__ import annotations
 
 import pytest
 
-from friTap.friTap import FridaBasedException, _run_early_exit_command
 from friTap.backends import BackendTransportError
+from friTap.friTap import FridaBasedException, _run_early_exit_command
 from friTap.fritap_utility import Failure, FriTapExit, Success
 from friTap.inspector import LibraryInspector
 

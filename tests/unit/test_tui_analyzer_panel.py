@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Tests for the TUI Analyzer Panel (key ``a``).
@@ -92,8 +91,9 @@ def test_empty_selection_does_not_start_run(tmp_path):
     async def _run() -> None:
         app = FriTapApp(replay_file=tap_path)
         async with app.run_test() as pilot:
-            from friTap.tui.widgets.analyzer_panel import AnalyzerPanel
             from textual.widgets import SelectionList
+
+            from friTap.tui.widgets.analyzer_panel import AnalyzerPanel
 
             screen = app.screen
             await pilot.press("a")
@@ -120,8 +120,9 @@ def test_dashboard_chips_map_to_exact_filters(tmp_path):
     _write_tap_with_stored_finding(tap_path)
 
     async def _run() -> None:
-        from friTap.tui.widgets.analyzer_panel import AnalyzerPanel
         from textual.widgets import Button
+
+        from friTap.tui.widgets.analyzer_panel import AnalyzerPanel
 
         app = FriTapApp(replay_file=tap_path)
         async with app.run_test() as pilot:

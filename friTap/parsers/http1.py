@@ -3,8 +3,8 @@
 import h11
 
 from friTap.constants import PROTOCOL_HTTP1
-from .base import BaseParser, ParseResult
 
+from .base import BaseParser, ParseResult
 
 _HTTP_METHODS = (
     b"GET ", b"POST ", b"PUT ", b"DELETE ", b"HEAD ",

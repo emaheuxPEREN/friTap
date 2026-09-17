@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Live PCAPNG sink streaming to a named FIFO for Wireshark auto-decrypt."""
 
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Optional
 
 from .pcapng import PcapngSink
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 def _cleanup_fifo(fifo_path: Optional[str], tmpdir: Optional[str]) -> None:
@@ -60,7 +60,7 @@ class LivePcapngSink:
         Raises:
             RuntimeError: On Windows where os.mkfifo is not available.
         """
-        from ..fritap_utility import are_we_running_on_windows, WINDOWS_LIVE_UNSUPPORTED
+        from ..fritap_utility import WINDOWS_LIVE_UNSUPPORTED, are_we_running_on_windows
         if are_we_running_on_windows():
             raise RuntimeError(WINDOWS_LIVE_UNSUPPORTED)
         self._tmpdir = tempfile.mkdtemp()

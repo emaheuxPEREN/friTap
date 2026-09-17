@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Backend abstraction layer for friTap."""
 
@@ -20,7 +19,6 @@ from .base import (
     ScriptRuntime,
     ThreadInfo,
 )
-
 
 _backend_instances: dict[str, Backend] = {}
 

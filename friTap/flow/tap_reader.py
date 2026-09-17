@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from friTap.flow.tap_format import (
+    _FOOTER_STRUCT,
+    _HEADER_STRUCT,
+    _RECORD_ENVELOPE,
     FLAG_HAS_FINDINGS,
     FLAG_HAS_INDEX,
     FOOTER_MAGIC,
@@ -24,9 +27,6 @@ from friTap.flow.tap_format import (
     FlowSummary,
     TapHeader,
     TapMeta,
-    _FOOTER_STRUCT,
-    _HEADER_STRUCT,
-    _RECORD_ENVELOPE,
     decode_finding_record,
     decode_flow,
     decode_flow_index,

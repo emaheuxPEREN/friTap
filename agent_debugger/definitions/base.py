@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Optional, Dict, Union
+from typing import Dict, List, Optional, Union
 
 # Regex ensuring each operator is a single +, -, *, or / between digits (no ** possible)
 _SAFE_EXPR_RE = re.compile(r"^\d+(\s*[+\-*/]\s*\d+)*$")

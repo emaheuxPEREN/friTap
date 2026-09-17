@@ -29,7 +29,7 @@ Delete sections that don't apply.
 
 - [ ] CHANGELOG.md updated (if user-visible)
 - [ ] Documentation updated (`docs/`, README.md)
-- [ ] If touching `requirements.txt` frida pin: also bumped `friTap/about.py` MAJOR and added a row to `compat.yml` (see [RELEASING.md](https://github.com/fkie-cad/friTap/blob/main/RELEASING.md))
+- [ ] If touching `requirements.txt` frida pin: also bumped `friTap/about.py` MAJOR and added a row to `compat.yml` (see [RELEASING.md](https://github.com/fkie-cad/friTap/blob/main/RELEASING.md)) — marker-gated branches are allowed as long as they agree on the lower major
 - [ ] If touching `agent/`: ran `./dev/compile_agent.sh` and committed the regenerated `friTap/fritap_agent.js`
 
 ## Notes for reviewers

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Backend selection modal for friTap TUI.
 
@@ -11,9 +10,9 @@ from __future__ import annotations
 
 try:
     from textual.app import ComposeResult
+    from textual.containers import Vertical
     from textual.screen import ModalScreen
     from textual.widgets import Button, Label
-    from textual.containers import Vertical
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False

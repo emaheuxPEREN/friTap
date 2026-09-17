@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Telegram protocol handler (combined MTProto cloud + Secret-Chat E2E).
 
@@ -23,11 +22,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from .base import BackendSupport, ProtocolHandler
-from . import mtproto_keylog_spec as spec
-from .mtproto_handler import MTPROTO_LIBRARY_PATTERNS
 from ..backends.base import BackendName
 from ..output.keylog_format import KeylogFormatter
+from . import mtproto_keylog_spec as spec
+from .base import BackendSupport, ProtocolHandler
+from .mtproto_handler import MTPROTO_LIBRARY_PATTERNS
 
 if TYPE_CHECKING:
     from ..events import KeylogEvent

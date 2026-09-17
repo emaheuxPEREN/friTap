@@ -30,7 +30,6 @@ import json
 
 import pytest
 
-
 # Legacy lib executors that ship hardcoded byte-patterns and previously gated the
 # JSON-vs-hardcoded decision on the global isPatternReplaced() flag alone.
 AFFECTED_LEGACY_LIBS = [

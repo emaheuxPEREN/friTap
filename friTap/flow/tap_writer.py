@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from friTap.flow.tap_format import (
+    _HEADER_STRUCT,
     FLAG_HAS_FINDINGS,
     FLAG_HAS_INDEX,
     REC_FINDING,
@@ -24,7 +25,6 @@ from friTap.flow.tap_format import (
     REC_KEYLOG,
     REC_META,
     TapMeta,
-    _HEADER_STRUCT,
     encode_finding_record,
     encode_flow,
     encode_flow_index,

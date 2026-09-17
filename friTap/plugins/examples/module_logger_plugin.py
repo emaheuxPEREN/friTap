@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 ModuleLoggerPlugin — example ScriptPlugin that enumerates process modules.
@@ -11,10 +10,11 @@ Demonstrates the full ScriptPlugin API:
 """
 
 from __future__ import annotations
-import logging
-from typing import Any, TYPE_CHECKING
 
-from ..script_plugin import ScriptPlugin, ScriptLoadOrder
+import logging
+from typing import TYPE_CHECKING, Any
+
+from ..script_plugin import ScriptLoadOrder, ScriptPlugin
 
 if TYPE_CHECKING:
     from ...events import LibraryDetectedEvent

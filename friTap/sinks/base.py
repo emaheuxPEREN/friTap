@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Base Sink protocol for friTap pipeline output.
@@ -9,10 +8,11 @@ Sinks never modify, route, or transform events - they only write them.
 """
 
 from __future__ import annotations
-from typing import Protocol, runtime_checkable, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from ..schemas.canonical import KeylogCanonical, DataCanonical, MetaCanonical
+    from ..schemas.canonical import DataCanonical, KeylogCanonical, MetaCanonical
 
 
 @runtime_checkable

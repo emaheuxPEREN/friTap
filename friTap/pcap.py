@@ -1,22 +1,40 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+import logging
 import ntpath
 import os
-import subprocess
-from threading import Thread, Event
 import random
-import logging
-import time
-import psutil
 import struct
+import subprocess
+import time
 import traceback
 import warnings
+from threading import Event, Thread
+
+import psutil
 
 from friTap.constants import build_infrastructure_bpf
+
 from .pcap_utility import is_pcapng_filename
 
+# scapy emits "WARNING: No libpcap provider available ! pcap won't be used" from
+# logging.getLogger("scapy.loading") at IMPORT time (scapy/config.py,
+# _set_conf_sockets). friTap's core features do not need a host libpcap
+# provider: -k (keylog) and -p (decrypted-payload pcap) are assembled by hand
+# with struct.pack from bytes streamed by the Frida agent (write_pcap_header /
+# log_plaintext_payload below), and wrpcap/PcapReader are pure-Python file I/O.
+# Only -f/--full_capture and live auto-decrypt local capture need one, and those
+# now raise their own actionable, platform-aware error. So the banner is pure
+# noise on every Windows machine without Npcap.
+#
+# scapy/error.py only claims the "scapy" logger level while it is still NOTSET,
+# so a level set *before* the import sticks; the NOTSET child "scapy.loading"
+# inherits it. The level is restored afterwards so genuine runtime scapy
+# warnings are not swallowed for the rest of the process.
+_scapy_logger = logging.getLogger("scapy")
+_scapy_prev_level = _scapy_logger.level
+_scapy_logger.setLevel(logging.ERROR)
 try:
-    from scapy.all import wrpcap, conf, ETH_P_ALL, sniff, Scapy_Exception
+    from scapy.all import ETH_P_ALL, Scapy_Exception, conf, sniff, wrpcap
     from scapy.utils import PcapReader
     SCAPY_AVAILABLE = True
 except ImportError:
@@ -48,15 +66,34 @@ except ImportError:
     import sys
     if 'pytest' not in sys.modules:
         logging.getLogger('friTap').warning('scapy is not installed, please install it by running: pip3 install scapy')
+finally:
+    # NOTSET means scapy had not been imported before; WARNING is the level
+    # scapy/error.py would otherwise have installed itself.
+    _scapy_logger.setLevel(
+        _scapy_prev_level if _scapy_prev_level != logging.NOTSET else logging.WARNING
+    )
+    del _scapy_prev_level
 
 from .android import Android
  
 INVALID_IPV4 = "0.0.0.0"
 INVALID_IPV6 = "::"
 
-# Configure logging to suppress scapy warnings
+# Silence scapy's *runtime* chatter (e.g. "Mac address to reach destination not
+# found"). The *load-time* "No libpcap provider available" banner is handled by
+# the logger guard around the scapy import above.
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 warnings.simplefilter("ignore", ResourceWarning)
+
+
+def _libpcap_hint() -> str:
+    """Platform-aware guidance for a missing/unusable libpcap provider.
+
+    Lazy import keeps friTap.pcap free of any import cycle with fritap_utility
+    and matches the function-local-import convention used by other consumers.
+    """
+    from .fritap_utility import libpcap_provider_hint
+    return libpcap_provider_hint()
 
 
 def terminate_lingering_processes(parent_pid):
@@ -151,7 +188,7 @@ class PCAP:
         AppTap's LocalExecutor (Linux). Returns None when AppTap is unavailable or
         no target identity is known, so the caller falls back to whole-device.
         """
-        from .apptap_adapter import apptap_available, FritapAdbExecutor
+        from .apptap_adapter import FritapAdbExecutor, apptap_available
         if not apptap_available():
             self.logger.warning(
                 "--owner-capture requested but the AppTap library is not installed; "
@@ -306,17 +343,24 @@ class PCAP:
                         stop_filter=self.stop_capture_thread
                     )
                 except PermissionError as e:
-                    pcap_class.logger.error(f"PermissionError: {e}")
-                    pcap_class.logger.debug("It seems you do not have permissions to access /dev/bpf. Please run the script with 'sudo' or grant your user access to /dev/bpf* files.")
-                    pcap_class.logger.debug("Exiting the program.")
+                    pcap_class.logger.error(f"Full capture (-f) failed: {e}")
+                    pcap_class.logger.error(_libpcap_hint())
+                    self.clean_up_and_exit()
+                except RuntimeError as e:
+                    # Windows without Npcap: conf.L2listen resolves to scapy's
+                    # _NotAvailableSocket, whose __init__ raises RuntimeError
+                    # ("winpcap is not installed"). Catch it before the generic
+                    # handler so the user gets the Npcap hint, not "Unknown error".
+                    pcap_class.logger.error(f"Full capture (-f) failed: {e}")
+                    pcap_class.logger.error(_libpcap_hint())
                     self.clean_up_and_exit()
                 except Scapy_Exception as e:
-                    pcap_class.logger.error(f"Scapy_Exception: {e}")
-                    pcap_class.logger.debug("Scapy could not open /dev/bpf for network capture. Ensure you have the correct permissions.")
-                    pcap_class.logger.debug("Run the script with 'sudo' (not recommended for security reasons).")
+                    pcap_class.logger.error(f"Full capture (-f) failed: {e}")
+                    pcap_class.logger.error(_libpcap_hint())
                     self.clean_up_and_exit()
                 except Exception as e:
-                    pcap_class.logger.error(f"Unknown error: {e}")
+                    pcap_class.logger.error(f"Full capture (-f) failed with an unexpected error: {e}")
+                    pcap_class.logger.error(_libpcap_hint())
                     pcap_class.logger.debug("Full traceback for debugging:")
                     pcap_class.logger.debug(traceback.format_exc())
                     self.clean_up_and_exit()
@@ -720,7 +764,7 @@ class PCAP:
         TLS keys instead of getting a scapy traceback. Default link
         type is DLT_EN10MB (1) for the no-source-to-probe case.
         """
-        from .output.pcapng_blocks import build_shb, build_idb, build_dsb
+        from .output.pcapng_blocks import build_dsb, build_idb, build_shb
         with open(output_pcapng, "wb") as fh:
             fh.write(build_shb())
             fh.write(build_idb(link_type=link_type))
@@ -742,7 +786,7 @@ class PCAP:
         away), still write a minimal valid pcapng with SHB+IDB(+DSB) so
         the user keeps the TLS keys instead of getting a scapy traceback.
         """
-        from .output.pcapng_blocks import build_shb, build_idb, build_dsb, build_epb
+        from .output.pcapng_blocks import build_dsb, build_epb, build_idb, build_shb
 
         source_missing = (
             not source_pcap

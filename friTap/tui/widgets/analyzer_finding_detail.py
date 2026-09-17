@@ -35,10 +35,8 @@ try:
 except ImportError:
     TEXTUAL_AVAILABLE = False
 
-from friTap.tui.themes import c
-
-
 from friTap.analysis import EVIDENCE_VALUE_KEYS, primary_evidence_value
+from friTap.tui.themes import c
 
 # Evidence keys worth surfacing as context (not the raw value).
 _CONTEXT_KEYS = ("location", "header", "field", "type", "host", "url", "content_type", "cwe")

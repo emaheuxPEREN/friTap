@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Generic memory-scan candidate formatter.
 
@@ -16,7 +15,8 @@ and no decrypted content. PUBLIC — not listed in ``private.txt``.
 """
 
 from __future__ import annotations
-from typing import List, Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, List, Optional
 
 from .keylog_format import KeylogFormatter
 

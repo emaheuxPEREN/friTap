@@ -283,9 +283,15 @@ sudo apt update && sudo apt install python3-dev build-essential
 friTap's `requirements.txt` allows a **range**, not a single version:
 
 ```
-frida>=17.0.0,<18.0.0
+frida>=17.0.0,<17.16.0; python_version < "3.11"
+frida>=17.0.0,<18.0.0; python_version >= "3.11"
 frida-tools>=14.0.0,<15.0.0
 ```
+
+On Python 3.10 the range stops below 17.16.0: frida 17.16.0 and later import
+`typing.NotRequired`, which needs Python 3.11+, while still advertising
+`Requires-Python: >=3.7`. Installing one on 3.10 fails with
+`ImportError: cannot import name 'NotRequired' from 'typing'`.
 
 ```bash
 # Check frida versions
@@ -294,7 +300,8 @@ frida --version
 
 # Reinstall within the supported range (do not over-pin)
 pip uninstall frida frida-tools
-pip install "frida>=17.0.0,<18.0.0" "frida-tools>=14.0.0,<15.0.0"
+pip install "frida>=17.0.0,<18.0.0" "frida-tools>=14.0.0,<15.0.0"   # Python 3.11+
+pip install "frida>=17.0.0,<17.16.0" "frida-tools>=14.0.0,<15.0.0"  # Python 3.10
 
 # Verify friTap compatibility
 fritap --version
@@ -501,6 +508,22 @@ fritap --full_capture -p traffic.pcap -k keys.log target_app
     parser stops it with
     `Error: --full_capture requires -p to set the pcap name` and prints the help
     text. `-f` always needs `-p <path>`.
+
+### "No libpcap provider available" / `--full_capture` captures nothing
+
+This message comes from **scapy** and only matters for full raw capture. friTap
+silences the cosmetic startup banner (it does not need a capture driver for
+`-k`/`-p`, which are written from the Frida agent's byte stream). You only hit a
+real error when `-f/--full_capture` (or live auto-decrypt local capture) can't
+find a provider:
+
+- **Windows:** install [Npcap](https://npcap.com/) and run from an elevated
+  shell. On **Windows ARM64**, Npcap ships x86 + ARM64 DLLs only (no x64), so use
+  a Python whose architecture matches (native ARM64 or x86) — an emulated x64
+  Python cannot load Npcap's DLLs.
+- **Linux:** run with `sudo` or grant the interpreter `CAP_NET_RAW`/`CAP_NET_ADMIN`.
+- **macOS/BSD:** ensure your user can read `/dev/bpf*` (run with `sudo` or install
+  Wireshark's ChmodBPF helper).
 
 **Child Process Issues**:
 

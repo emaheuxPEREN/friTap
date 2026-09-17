@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Synthetic, hermetic HTTP/2 HPACK tests for friTap's frame parser.
 

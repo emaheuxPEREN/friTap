@@ -8,7 +8,8 @@ _log = logging.getLogger(__name__)
 # Try to import hpack for HPACK header decompression
 _hpack_available = False
 try:
-    from hpack import Decoder as HpackDecoder, HPACKDecodingError
+    from hpack import Decoder as HpackDecoder
+    from hpack import HPACKDecodingError
     _hpack_available = True
 except ImportError:
     HpackDecoder = None  # type: ignore[assignment,misc]
@@ -22,8 +23,8 @@ except ImportError:
     )
 
 from friTap.constants import PROTOCOL_HTTP2  # noqa: E402
-from .base import BaseParser, ParseResult, apply_http2_headers  # noqa: E402
 
+from .base import BaseParser, ParseResult, apply_http2_headers  # noqa: E402
 
 # HTTP/2 connection preface
 _CONNECTION_PREFACE = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"

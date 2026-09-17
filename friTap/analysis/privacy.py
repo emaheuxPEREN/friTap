@@ -34,6 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from friTap.analysis import Finding, Severity
 from friTap.analysis.filtering import with_category
+
 # Reuse the IOC analyzer's vetted primitives rather than redefining them.
 from friTap.analysis.ioc import _EMAIL_PATTERN, _IPV4_PATTERN, _is_private_ip
 

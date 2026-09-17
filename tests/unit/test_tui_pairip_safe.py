@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """TUI --pairip-safe toggle tests (fkie-cad/friTap#64, TUI leg).
 
@@ -20,7 +19,6 @@ pytest.importorskip("textual")  # TUI modules import textual widgets
 
 from friTap.tui.capture_controller import CaptureController  # noqa: E402
 from friTap.tui.modals.start_confirm_modal import StartConfirmModal  # noqa: E402
-
 
 # ---- build_config forwarding --------------------------------------------
 

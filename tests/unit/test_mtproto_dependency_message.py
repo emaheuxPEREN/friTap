@@ -89,8 +89,7 @@ def test_transport_ctr_raises_clean_error_without_cryptography(monkeypatch):
     """If CTR is reached without cryptography, it raises MtprotoDependencyError."""
     import sys
 
-    from friTap.offline.mtproto import MtprotoDependencyError
-    from friTap.offline.mtproto import transport
+    from friTap.offline.mtproto import MtprotoDependencyError, transport
 
     # Hide the cryptography ciphers module so the lazy import inside _ctr_cipher fails.
     monkeypatch.setitem(sys.modules, "cryptography.hazmat.primitives.ciphers", None)

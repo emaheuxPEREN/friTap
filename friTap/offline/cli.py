@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Command-line entry point for the offline pcap-to-tap pipeline.
 
@@ -309,7 +308,10 @@ def run_offline_pcap_to_tap(argv: Sequence[str]) -> int:
     # say so loudly and up front (rather than silently producing a .tap without
     # the Telegram flows). Non-fatal: any TLS/QUIC passes still run.
     if kwargs.get("mtproto_keylog"):
-        from friTap.offline.mtproto import MTPROTO_DEPENDENCY_HINT, mtproto_backend_available
+        from friTap.offline.mtproto import (
+            MTPROTO_DEPENDENCY_HINT,
+            mtproto_backend_available,
+        )
         if not mtproto_backend_available():
             print(f"Warning: {MTPROTO_DEPENDENCY_HINT}")
             print("         MTProto streams in this capture will be skipped.")

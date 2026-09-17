@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
-import time
+from typing import TYPE_CHECKING, Optional
 
 from friTap.flow import display as _display
-from friTap.flow.layers import (
-    ProtocolLayer, LayerData, TlsLayer,
-)
 from friTap.flow.layer_registry import get_registry
+from friTap.flow.layers import (
+    LayerData,
+    ProtocolLayer,
+    TlsLayer,
+)
 
 if TYPE_CHECKING:
     from friTap.parsers.base import ParseResult

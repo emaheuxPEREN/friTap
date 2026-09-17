@@ -14,7 +14,6 @@ from friTap.analysis.registry import resolve_analyzers
 from friTap.flow.models import Flow, FlowChunk, FlowState
 from friTap.parsers.base import ParseResult
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

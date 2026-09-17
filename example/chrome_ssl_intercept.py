@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Standalone script to intercept SSL/TLS traffic from Chrome on Android
 using friTap's fritap_agent.js agent.
@@ -34,14 +33,15 @@ Notes:
       format). Default is False so this script behaves as plaintext-only out of the box.
 """
 
-import frida
-import sys
-import os
-import struct
-import socket
-import signal
-import time
 import argparse
+import os
+import signal
+import socket
+import struct
+import sys
+import time
+
+import frida
 
 # Path to the friTap JavaScript agent (relative to this script)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

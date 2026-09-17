@@ -22,7 +22,6 @@ from pathlib import Path
 
 import yaml
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ABOUT = REPO_ROOT / "friTap" / "about.py"
 REQUIREMENTS = REPO_ROOT / "requirements.txt"
@@ -44,19 +43,33 @@ def _major_from_about(text: str) -> int:
     return int(m.group(1).split(".")[0])
 
 
+def _strip_markers(text: str) -> str:
+    """Drop PEP 508 environment markers so the pin-shape check sees the bare spec."""
+    return "\n".join(line.split(";", 1)[0].rstrip() for line in text.splitlines())
+
+
 def _frida_bounds_from_requirements(text: str) -> tuple[int, int]:
-    """Return (lower_major, upper_major) parsed from a strict-cap pin.
+    """Return (lower_major, upper_major) parsed from the strict-cap pin(s).
 
     Fails loudly if the pin shape isn't `frida>=N.x.y,<M.x.y` — uncapped
-    pins are exactly the failure mode this guard exists to prevent.
+    pins are exactly the failure mode this guard exists to prevent. The pin
+    may be split across marker-gated branches, which must agree on the lower
+    major; the widest cap is then canonical.
     """
-    m = _FRIDA_PIN_RE.search(text)
-    if not m:
+    pins = _FRIDA_PIN_RE.findall(_strip_markers(text))
+    if not pins:
         die(
             "requirements.txt frida pin must use strict-cap shape "
             "`frida>=N.x.y,<(N+1).0.0`. See RELEASING.md."
         )
-    return int(m.group(1)), int(m.group(2))
+    lowers = {int(lower) for lower, _ in pins}
+    if len(lowers) > 1:
+        die(f"requirements.txt frida pins disagree on lower major: {sorted(lowers)}.")
+    lower = lowers.pop()
+    uppers = {int(upper) for _, upper in pins}
+    if any(upper > lower + 1 for upper in uppers):
+        die(f"a requirements.txt frida pin caps above major {lower + 1}: {sorted(uppers)}.")
+    return lower, max(uppers)
 
 
 def _frida_lower_only(text: str) -> int | None:

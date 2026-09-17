@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Live Wireshark named-pipe output handler."""
 
 from __future__ import annotations
+
 import logging
 import os
 import tempfile
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .base import OutputHandler
 
 if TYPE_CHECKING:
-    from ..events import EventBus, DatalogEvent
+    from ..events import DatalogEvent, EventBus
     from ..pcap import PCAP
 
 
@@ -72,8 +72,8 @@ class LiveWiresharkHandler(OutputHandler):
         # Create PCAP writer with the already-opened file handle.
         # We bypass PCAP.__init__() because it calls open() internally
         # which would deadlock on the FIFO.
-        from ..pcap import PCAP
         from ..constants import SSL_READ, SSL_WRITE
+        from ..pcap import PCAP
         pcap = PCAP.__new__(PCAP)
         pcap.SSL_READ = SSL_READ
         pcap.SSL_WRITE = SSL_WRITE

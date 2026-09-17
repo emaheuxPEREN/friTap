@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Protocol handler registry."""
 
 from __future__ import annotations
+
 import importlib
 import logging
 import os
@@ -151,11 +151,12 @@ def _register_builtin_handler_factories() -> None:
     module's import light and avoid cycles). Idempotent."""
     if _BUILTIN_HANDLER_FACTORIES:
         return
-    from .tls_handler import TLSHandler
-#    from .ipsec_handler import IPSecHandler # needs to be impl.
-    from .ssh_handler import SSHHandler
     from .mtproto_handler import MTProtoHandler
+
+    #    from .ipsec_handler import IPSecHandler # needs to be impl.
+    from .ssh_handler import SSHHandler
     from .telegram_handler import TelegramHandler
+    from .tls_handler import TLSHandler
     _BUILTIN_HANDLER_FACTORIES.update({
         "tls": TLSHandler,
 #        "ipsec": IPSecHandler,  # needs to be impl.

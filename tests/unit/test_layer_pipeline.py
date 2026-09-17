@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit + integration tests for the Phase 1b LayerPipeline.
 
@@ -28,7 +27,6 @@ from friTap.flow.layer_registry import (
 from friTap.flow.layers import AppLayer, TlsLayer
 from friTap.flow.models import Flow, FlowChunk, FlowState
 from friTap.parsers.base import ParseResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers

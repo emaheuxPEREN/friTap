@@ -15,14 +15,13 @@ no-metadata contract.
 
 from friTap.connection_index import resolve_connection_key
 from friTap.events import (
-    DatalogEvent,
-    EventBus,
     SESSION_ENDED,
     SESSION_STARTED,
+    DatalogEvent,
+    EventBus,
 )
 from friTap.flow.collector import FlowCollector
 from friTap.message_router import MessageRouter
-
 
 SRC_ADDR = "10.0.0.2"
 SRC_PORT = 51000

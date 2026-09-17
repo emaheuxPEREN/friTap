@@ -15,9 +15,9 @@ if TYPE_CHECKING:
     from friTap.analysis.filtering import FindingFilter
 
 try:
-    from textual.widgets import DataTable
-    from textual.message import Message
     from rich.markup import escape as _escape_markup
+    from textual.message import Message
+    from textual.widgets import DataTable
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False

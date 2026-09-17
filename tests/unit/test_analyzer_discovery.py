@@ -12,7 +12,6 @@ import pytest
 import friTap.analysis.discovery as discovery
 import friTap.analysis.registry as registry
 
-
 TOY = textwrap.dedent(
     """
     class DropInAnalyzer:

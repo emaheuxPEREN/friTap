@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from friTap.flow.models import Flow, FlowSummary
     from friTap.filter.evaluator import FilterEngine
+    from friTap.flow.models import Flow, FlowSummary
 
 try:
-    from textual.widgets import DataTable
     from textual.message import Message
+    from textual.widgets import DataTable
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
@@ -19,15 +19,16 @@ from friTap.constants import (
     PROTOCOL_HTTP1,
     PROTOCOL_HTTP2,
     PROTOCOL_HTTP3,
-    PROTOCOL_WEBSOCKET,
-    PROTOCOL_SIGNAL,
     PROTOCOL_MTPROTO,
+    PROTOCOL_SIGNAL,
     PROTOCOL_TELEGRAM_E2E,
+    PROTOCOL_WEBSOCKET,
 )
 from friTap.tui.themes import c
 
 if TEXTUAL_AVAILABLE:
     from datetime import datetime
+
     from friTap.flow.models import FlowState, FlowSummary
 
     class FlowListWidget(DataTable):

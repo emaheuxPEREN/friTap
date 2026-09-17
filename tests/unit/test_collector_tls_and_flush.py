@@ -19,15 +19,14 @@ BUG #5 — flush() never emitted COMPLETED, so end-of-capture flows were never
 
 from friTap.connection_index import resolve_connection_key
 from friTap.events import (
+    SESSION_STARTED,
     DatalogEvent,
     EventBus,
     FlowEvent,
     SessionEvent,
-    SESSION_STARTED,
 )
 from friTap.flow.collector import FlowCollector
 from friTap.flow.models import FlowEventType, FlowState
-
 
 SRC_ADDR = "10.0.0.2"
 SRC_PORT = 51000

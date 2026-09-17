@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Base class for cross-platform frida-server management.
@@ -11,8 +10,8 @@ that platform-specific managers must implement.
 from __future__ import annotations
 
 import hashlib
-import lzma
 import logging
+import lzma
 import shutil
 import subprocess
 import tempfile

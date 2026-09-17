@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the offline metadata producer (Phase 2).
 
@@ -20,10 +19,9 @@ import shutil
 
 import pytest
 
-from friTap.offline import tshark as tshark_mod
-from friTap.offline import pcap_to_tap as p2t
 from friTap.flow.tap_reader import TapReader
-
+from friTap.offline import pcap_to_tap as p2t
+from friTap.offline import tshark as tshark_mod
 
 # ---------------------------------------------------------------------------
 # parse_tls_metadata_fields (pure)

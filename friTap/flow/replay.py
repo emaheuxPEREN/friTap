@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Flow replay / overview source for ``.tap`` files.
@@ -18,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections import OrderedDict
-from typing import Optional, Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Protocol
 
 from friTap.flow.tap_format import FlowSummary, TapMeta
 from friTap.flow.tap_reader import TapReader

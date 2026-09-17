@@ -6,10 +6,10 @@ Comprehensive test runner for friTap that handles different test categories
 and provides detailed reporting.
 """
 
-import sys
-import subprocess
 import argparse
 import platform
+import subprocess
+import sys
 from pathlib import Path
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Output handler factory for friTap.
@@ -97,12 +96,17 @@ class OutputHandlerFactory:
             (handlers_list, live_info_dict) where live_info_dict has keys
             'tmpdir' and 'filename' if live mode is active, else empty dict.
         """
+        from ..pcap_utility import is_pcapng_filename
         from . import (
-            PcapOutputHandler, KeylogOutputHandler, JsonOutputHandler,
-            JsonlOutputHandler, ConsoleOutputHandler, PcapngOutputHandler, LivePcapngHandler,
+            ConsoleOutputHandler,
+            JsonlOutputHandler,
+            JsonOutputHandler,
+            KeylogOutputHandler,
+            LivePcapngHandler,
+            PcapngOutputHandler,
+            PcapOutputHandler,
         )
         from .keylog_paths import split_keylog_path
-        from ..pcap_utility import is_pcapng_filename
 
         handlers = []
         live_info = {}
@@ -200,7 +204,10 @@ class OutputHandlerFactory:
 
         # Live Wireshark modes
         if config.output.live:
-            from ..fritap_utility import are_we_running_on_windows, WINDOWS_LIVE_UNSUPPORTED
+            from ..fritap_utility import (
+                WINDOWS_LIVE_UNSUPPORTED,
+                are_we_running_on_windows,
+            )
             if are_we_running_on_windows():
                 logger.error(WINDOWS_LIVE_UNSUPPORTED)
             else:

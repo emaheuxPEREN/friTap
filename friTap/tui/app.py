@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Main TUI application for friTap.
@@ -8,12 +7,13 @@ Launch with `fritap` (no arguments) for the interactive experience.
 """
 
 from __future__ import annotations
+
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 import platformdirs
-from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..events import EventBus
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 try:
     from textual.app import App, ComposeResult  # noqa: F401
     from textual.binding import Binding  # noqa: F401
-    from textual.widgets import Header, Footer  # noqa: F401
+    from textual.widgets import Footer, Header  # noqa: F401
     TEXTUAL_AVAILABLE = True
 except ImportError:
     TEXTUAL_AVAILABLE = False
@@ -66,9 +66,9 @@ class AppState:
 
 
 if TEXTUAL_AVAILABLE:
-    from .screens.main_screen import MainScreen
     from .modals.quit_modal import QuitConfirmModal
-    from .themes import FRITAP_DARK, FRITAP_LIGHT, set_theme, c
+    from .screens.main_screen import MainScreen
+    from .themes import FRITAP_DARK, FRITAP_LIGHT, c, set_theme
 
     class FriTapApp(App):
         """The friTap interactive TUI application."""
@@ -146,9 +146,10 @@ if TEXTUAL_AVAILABLE:
 
         def _refresh_themed_widgets(self) -> None:
             """Force re-render of all widgets that use c() for inline colors."""
+            from textual.widgets import Static
+
             from .widgets.menu_panel import MenuPanel
             from .widgets.status_bar import StatusBar
-            from textual.widgets import Static
 
             ms = self._main_screen()
             if not ms:

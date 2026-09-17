@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Explorer mode modal for friTap TUI.
@@ -19,7 +18,7 @@ from __future__ import annotations
 import bisect
 import json
 from dataclasses import dataclass
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from rich.segment import Segment
 from rich.style import Style
@@ -81,7 +80,7 @@ _TEXT_RENDER_LIMIT = 256 * 1024
 
 if TEXTUAL_AVAILABLE:
     from friTap.tui.themes import c
-    from friTap.tui.widgets.flow_detail import format_hexdump_lines, _is_text
+    from friTap.tui.widgets.flow_detail import _is_text, format_hexdump_lines
 
     class HexViewerWidget(ScrollView, can_focus=True):
         """Custom hex/text viewer with byte-range selection.

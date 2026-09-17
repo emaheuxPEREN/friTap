@@ -23,7 +23,6 @@ from agent_debugger.definitions.base import (
     StructField,
 )
 
-
 # ----------------------------------------------------------------------
 # Fakes for SBFrame / SBProcess / SBTarget / SBBreakpoint{,Location}
 # ----------------------------------------------------------------------

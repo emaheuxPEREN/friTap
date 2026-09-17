@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Abstract base class for output handlers.
@@ -9,11 +8,19 @@ and writes output in its specific format.
 """
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..events import EventBus, KeylogEvent, DatalogEvent, SessionEvent, ConsoleEvent, ErrorEvent
+    from ..events import (
+        ConsoleEvent,
+        DatalogEvent,
+        ErrorEvent,
+        EventBus,
+        KeylogEvent,
+        SessionEvent,
+    )
 
 
 class OutputHandler(ABC):

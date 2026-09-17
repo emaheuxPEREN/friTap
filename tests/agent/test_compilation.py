@@ -5,12 +5,13 @@ Validates that the TypeScript agent compiles successfully
 and produces valid JavaScript output.
 """
 
-import pytest
-import subprocess
-import os
 import json
+import os
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 
 @pytest.mark.agent_compilation

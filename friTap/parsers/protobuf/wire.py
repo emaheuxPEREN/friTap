@@ -19,7 +19,6 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
 
-
 _TEXT_PREFIXES = (
     b"HTTP/", b"GET ", b"POST ", b"PUT ", b"DELETE ", b"PATCH ", b"HEAD ",
     b"OPTIONS ", b"CONNECT ", b"{", b"[", b"<", b"<!DOCTYPE", b"<?XML",

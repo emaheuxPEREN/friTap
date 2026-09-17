@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Plumbing tests for spawn argv resolution (issue #66 follow-up + #66 bug).
 
@@ -25,7 +24,6 @@ import stat
 from friTap.config import FriTapConfig
 from friTap.spawn_target import resolve_spawn_target
 from tests.unit._log_helpers import attach_log_capture
-
 
 SPACED_ARGV = ["wine", "/home/u/.wine/drive_c/Program Files/My Game/app.exe"]
 SPACED_JOINED = " ".join(SPACED_ARGV)

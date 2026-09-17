@@ -21,7 +21,6 @@ from friTap.offline.registry import (  # noqa: E402
     get_offline_decryptor_registry,
 )
 
-
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "offline_decryptors"
 
 

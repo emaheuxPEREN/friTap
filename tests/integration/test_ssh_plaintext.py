@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Integration test for SSH plaintext capture and the unified ``-k`` keylog.
 
@@ -35,10 +34,10 @@ import tempfile
 import pytest
 
 from friTap.events import (
+    ConsoleEvent,
     DatalogEvent,
     EventBus,
     KeylogEvent,
-    ConsoleEvent,
 )
 from friTap.message_router import MessageRouter
 from friTap.output.keylog_handler import KeylogOutputHandler

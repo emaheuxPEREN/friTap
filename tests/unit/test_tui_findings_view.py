@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Tests for the TUI Findings Viewer.
@@ -25,7 +24,6 @@ from friTap.analysis import Finding, Severity
 from friTap.flow.models import Flow, FlowState
 from friTap.flow.tap_writer import TapWriter
 from friTap.tui.app import FriTapApp
-
 
 # ----------------------------------------------------------------------
 # Fixtures
@@ -165,8 +163,9 @@ def test_findings_view_empty_shows_scan_hint(tmp_path):
     async def _run() -> None:
         app = FriTapApp(replay_file=tap_path)
         async with app.run_test() as pilot:
-            from friTap.tui.widgets.findings_list import FindingsListWidget
             from textual.widgets import Static
+
+            from friTap.tui.widgets.findings_list import FindingsListWidget
 
             screen = app.screen
             findings_list = screen.query_one("#findings-list", FindingsListWidget)
@@ -186,6 +185,7 @@ def test_findings_list_renders_markup_metachars_without_crash():
     """A finding whose data contains Rich markup (e.g. a stray ``[/]``) must not
     crash the markup-rendered DataTable — every user-derived cell is escaped."""
     from textual.app import App, ComposeResult
+
     from friTap.tui.widgets.findings_list import FindingsListWidget
 
     class _Harness(App):

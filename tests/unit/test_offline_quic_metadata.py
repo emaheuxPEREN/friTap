@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the offline QUIC metadata producer.
 
@@ -14,12 +13,11 @@ FlowCollector + EventBus, asserting the resulting flow carries the stamped
 
 from __future__ import annotations
 
-from friTap.offline import tshark as tshark_mod
-from friTap.offline import pcap_to_tap as p2t
 from friTap.connection_index import resolve_connection_key
 from friTap.events import DatalogEvent, EventBus, SessionEvent
 from friTap.flow.collector import FlowCollector
-
+from friTap.offline import pcap_to_tap as p2t
+from friTap.offline import tshark as tshark_mod
 
 # ---------------------------------------------------------------------------
 # parse_quic_metadata_fields (pure)

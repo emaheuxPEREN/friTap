@@ -267,7 +267,7 @@ friTap automatically installs the following dependencies:
 
 - **frida** (>= 17.0.0, < 18.0.0): Core instrumentation framework
 - **frida-tools** (>= 14.0.0, < 15.0.0): Frida command-line tools
-- **scapy**: Network packet manipulation
+- **scapy**: PCAP/PCAPNG file I/O (pure Python) and, for `-f/--full_capture` only, raw packet capture. Raw capture additionally needs a host libpcap provider — [Npcap](https://npcap.com/) on Windows, libpcap on Linux/macOS. `-k` (keylog) and `-p` (decrypted-payload pcap) do **not** need one.
 - **AndroidFridaManager**: Android device management
 - **rich** (>= 13.0.0): Terminal output formatting
 - **hexdump**: Binary data display

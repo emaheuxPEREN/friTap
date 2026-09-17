@@ -16,7 +16,6 @@ import pytest
 
 from friTap.patterns.loader import PatternLoader
 
-
 # Mirrors the agent-side `PATTERNS_PLACEHOLDER` constant. Duplicated on
 # purpose so a rename in the agent (which would change the boundary
 # semantics) is caught here instead of silently shipping.

@@ -46,7 +46,7 @@ def _make_endpoint_data(default_library: str = "unknown") -> dict[str, dict]:
 def _run_live_capture(target: str, mobile: bool, duration: int, output: str | None) -> None:
     """Run a live capture and build library attribution from EventBus events."""
     from friTap import FriTap
-    from friTap.events import LibraryDetectedEvent, DatalogEvent
+    from friTap.events import DatalogEvent, LibraryDetectedEvent
 
     endpoint_data = _make_endpoint_data()
     detected_libraries: list[dict] = []

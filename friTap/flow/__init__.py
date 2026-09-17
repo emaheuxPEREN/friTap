@@ -10,12 +10,12 @@ from .http_utils import (
     parse_content_disposition_filename,
     sanitize_filename,
 )
-from .models import Flow, FlowEventType, FlowState, FlowChunk
+from .models import Flow, FlowChunk, FlowEventType, FlowState
+from .replay import IFlowSource, ReplayController
 from .stream_buffer import StreamBuffer
 from .tap_format import FlowSummary, TapHeader, TapMeta
 from .tap_reader import TapReader
 from .tap_writer import TapWriter
-from .replay import IFlowSource, ReplayController
 
 __all__ = [
     "FlowCollector",

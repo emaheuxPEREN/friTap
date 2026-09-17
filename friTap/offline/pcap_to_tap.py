@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Reconstruct a friTap ``.tap`` from a tshark-decrypted capture.
 
@@ -27,7 +26,7 @@ if TYPE_CHECKING:
     from friTap.offline.registry import OfflineDecryptorEntry
 
 from friTap.connection_index import resolve_connection_key
-from friTap.events import DatalogEvent, EventBus, SESSION_STARTED, SessionEvent
+from friTap.events import SESSION_STARTED, DatalogEvent, EventBus, SessionEvent
 from friTap.flow.collector import FlowCollector
 from friTap.flow.layers import SshLayer
 from friTap.flow.tap_writer import TapWriter
@@ -1225,10 +1224,10 @@ def _emit_telegram_streams(
     from friTap.connection_index import normalize_4tuple
     from friTap.offline.mtproto import MtprotoDependencyError
     from friTap.offline.mtproto.decrypt import MtprotoStats, iter_decrypted_messages
-    from friTap.offline.mtproto.keylog import load_mtproto_keylog
-    from friTap.offline.mtproto.e2e.keylog import load_secret_chat_keylog
     from friTap.offline.mtproto.e2e.decrypt import iter_secret_chat_messages
+    from friTap.offline.mtproto.e2e.keylog import load_secret_chat_keylog
     from friTap.offline.mtproto.e2e.records import SecretChatStats
+    from friTap.offline.mtproto.keylog import load_mtproto_keylog
 
     auth_keymap = load_mtproto_keylog(telegram_keylog)
     secret_keymap = load_secret_chat_keylog(telegram_keylog)
@@ -1507,8 +1506,8 @@ def _attach_transport_metadata_layers(flows, inner_meta: dict | None = None) -> 
     set of TLS-riding protocols is registry-driven (``requires_tls_strip``), so a
     TLS-riding plugin protocol is handled here automatically.
     """
-    from friTap.flow.layers import AppLayer, TlsLayer
     from friTap.connection_index import canonical_4tuple, normalize_addr
+    from friTap.flow.layers import AppLayer, TlsLayer
 
     def endpoint_key(flow) -> str:
         # Canonical (spelling-independent) key — must match the key the

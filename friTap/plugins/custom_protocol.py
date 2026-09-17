@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 CustomProtocolPlugin — base class for user-defined protocol plugins.
@@ -18,14 +17,14 @@ from __future__ import annotations
 import logging
 import re
 from abc import abstractmethod
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from ..events import KeylogEvent, DatalogEvent, ConsoleEvent, ErrorEvent
+from ..events import ConsoleEvent, DatalogEvent, ErrorEvent, KeylogEvent
 from .script_plugin import ScriptPlugin
 
 if TYPE_CHECKING:
-    from .script_context import ScriptContext
     from ..session import Session
+    from .script_context import ScriptContext
 
 logger = logging.getLogger("friTap.plugins.custom_protocol")
 
@@ -352,8 +351,8 @@ class CustomProtocolPlugin(ScriptPlugin):
     def _register_protocol_handler(self) -> None:
         """Create and register a TemplateProtocolHandler in the global registry."""
         try:
-            from ..protocols.registry import ProtocolRegistry  # noqa: F401
             from ..protocols.base import ProtocolHandler
+            from ..protocols.registry import ProtocolRegistry  # noqa: F401
 
             plugin = self
             compiled_patterns = [re.compile(pat, re.IGNORECASE) for pat in self.library_patterns]

@@ -30,7 +30,6 @@ _SIGNAL_AVAILABLE = importlib.util.find_spec("friTap.offline.signal") is not Non
 from friTap.flow.models import Flow, FlowChunk  # noqa: E402
 from friTap.offline.pcap_to_tap import _attach_transport_metadata_layers  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers — build a layered Signal flow + write it to a .tap
 # ---------------------------------------------------------------------------

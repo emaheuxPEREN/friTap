@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Generic keylog output handler.
 
@@ -14,8 +13,9 @@ don't leave a confusing empty ``mykeys.ssh.log`` on disk.
 """
 
 from __future__ import annotations
+
 import logging
-from typing import IO, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Optional
 
 from .base import OutputHandler
 from .dedup import KeyDeduplicator

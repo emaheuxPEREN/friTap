@@ -12,8 +12,8 @@ Based on keys-in-flux research:
 https://github.com/fkie-cad/keys-in-flux-paper-material
 """
 
-import sys
 import os
+import sys
 
 try:
     import lldb  # noqa: F401

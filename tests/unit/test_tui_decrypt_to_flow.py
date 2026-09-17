@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Unit tests for the Phase 3 TUI "decrypt-to-flow" feature.
 
@@ -47,7 +46,6 @@ pytest.importorskip("textual")
 
 from friTap.output.keylog_paths import split_keylog_path  # noqa: E402
 from friTap.tui.app import FriTapApp  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -893,8 +891,9 @@ class TestOpenPcapModal:
     keeps itself open when the pcap field is empty."""
 
     def test_accept_returns_dict(self):
-        from friTap.tui.modals.open_pcap_modal import OpenPcapModal
         from textual.widgets import Input
+
+        from friTap.tui.modals.open_pcap_modal import OpenPcapModal
         result: dict = {}
 
         async def _run() -> None:
@@ -942,8 +941,9 @@ class TestOpenPcapModal:
 
     def test_empty_pcap_keeps_modal_open(self):
         """Submitting with an empty pcap must NOT dismiss (no result)."""
-        from friTap.tui.modals.open_pcap_modal import OpenPcapModal
         from textual.widgets import Input
+
+        from friTap.tui.modals.open_pcap_modal import OpenPcapModal
         result: dict = {"dismissed": False}
 
         async def _run() -> None:

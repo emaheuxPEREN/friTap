@@ -12,8 +12,8 @@ import json
 
 from friTap.analysis import Finding, Severity
 from friTap.analysis.reporters import (
-    JsonReporter,
     CsvReporter,
+    JsonReporter,
     MarkdownReporter,
     TableReporter,
 )

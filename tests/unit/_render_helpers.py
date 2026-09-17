@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Shared test helper: a fake RichLog that captures VISIBLE rendered text.
 

@@ -14,7 +14,6 @@ from types import SimpleNamespace
 
 from friTap.flow.collector import FlowCollector
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

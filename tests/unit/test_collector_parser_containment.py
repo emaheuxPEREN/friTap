@@ -3,10 +3,10 @@
 import pytest
 
 from friTap.events import (
+    ERROR_SEVERITY_WARNING,
     DatalogEvent,
     ErrorEvent,
     EventBus,
-    ERROR_SEVERITY_WARNING,
 )
 from friTap.flow.collector import FlowCollector
 from friTap.parsers.base import BaseParser, SafeParserAdapter

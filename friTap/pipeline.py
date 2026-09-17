@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Message processing pipeline for friTap.
@@ -17,12 +16,16 @@ Fan-out to sinks is handled by MessagePipeline.push() after stages complete.
 """
 
 from __future__ import annotations
+
 import logging
 import socket
 import struct
 import time
-from typing import Protocol as TypingProtocol, TYPE_CHECKING, runtime_checkable
+from typing import TYPE_CHECKING, runtime_checkable
+from typing import Protocol as TypingProtocol
 
+from .connection_index import DUMMY_SESSION_ID_BASE, NSS_DUMMY_SESSION_ID
+from .constants import INFRASTRUCTURE_PORTS, LOOPBACK_ADDRS, SSL_READ
 from .schemas.canonical import (
     AddressFamily,
     DataCanonical,
@@ -31,10 +34,6 @@ from .schemas.canonical import (
     KeylogCanonical,
     MetaCanonical,
 )
-
-from .connection_index import DUMMY_SESSION_ID_BASE, NSS_DUMMY_SESSION_ID
-from .constants import SSL_READ
-from .constants import INFRASTRUCTURE_PORTS, LOOPBACK_ADDRS
 
 if TYPE_CHECKING:
     from .sinks.base import Sink
@@ -88,6 +87,7 @@ class ValidateStage:
         self._adapter = None
         if debug:
             from pydantic import TypeAdapter
+
             from .schemas.agent_messages import AgentMessage
             self._adapter = TypeAdapter(AgentMessage)
 

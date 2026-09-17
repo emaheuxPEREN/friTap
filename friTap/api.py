@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 Clean builder-pattern API for programmatic friTap usage.
@@ -36,13 +35,20 @@ Usage:
 """
 
 from __future__ import annotations
-import logging
-from typing import Callable, List, Optional, TYPE_CHECKING
 
-from .config import FriTapConfig, DeviceConfig, OutputConfig, HookingConfig
+import logging
+from typing import TYPE_CHECKING, Callable, List, Optional
+
+from .config import DeviceConfig, FriTapConfig, HookingConfig, OutputConfig
 from .events import (
-    EventBus, KeylogEvent, DatalogEvent, LibraryDetectedEvent, SessionEvent,
-    FlowEvent, OhttpEvent, MessageEvent,
+    DatalogEvent,
+    EventBus,
+    FlowEvent,
+    KeylogEvent,
+    LibraryDetectedEvent,
+    MessageEvent,
+    OhttpEvent,
+    SessionEvent,
 )
 
 if TYPE_CHECKING:

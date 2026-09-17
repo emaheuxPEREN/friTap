@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from friTap.analysis import analyze_tap
 from friTap.analysis.protobuf_analyzer import ProtobufAnalyzer
 from friTap.analysis.reporters import (
-    JsonReporter,
     CsvReporter,
+    JsonReporter,
     MarkdownReporter,
     TableReporter,
 )

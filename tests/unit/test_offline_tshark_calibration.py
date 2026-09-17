@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """Real-tshark calibration harness for the offline metadata extractors.
 
@@ -47,13 +46,16 @@ from friTap.offline.tshark import (  # noqa: E402  (after the gates)
 
 def test_tls_metadata_calibration(tmp_path):
     """A crafted TLS 1.3 handshake yields SNI/cipher/version/ALPN via tshark."""
-    from scapy.all import IP, TCP, wrpcap, raw
-    from scapy.layers.tls.record import TLS
-    from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
+    from scapy.all import IP, TCP, raw, wrpcap
     from scapy.layers.tls.extensions import (
-        TLS_Ext_ServerName, ServerName, TLS_Ext_ALPN,
-        ProtocolName, TLS_Ext_SupportedVersion_SH,
+        ProtocolName,
+        ServerName,
+        TLS_Ext_ALPN,
+        TLS_Ext_ServerName,
+        TLS_Ext_SupportedVersion_SH,
     )
+    from scapy.layers.tls.handshake import TLSClientHello, TLSServerHello
+    from scapy.layers.tls.record import TLS
 
     pcap_path = tmp_path / "tls_calib.pcap"
     C = ("10.0.0.1", 50000)
@@ -88,7 +90,8 @@ def test_tls_metadata_calibration(tmp_path):
 def test_ssh_metadata_calibration(tmp_path):
     """A crafted SSH banner + KEXINIT exchange yields connection metadata."""
     import struct
-    from scapy.all import IP, TCP, wrpcap, Raw
+
+    from scapy.all import IP, TCP, Raw, wrpcap
 
     def namelist(s):
         b = s.encode()
@@ -144,7 +147,8 @@ def test_quic_version_calibration(tmp_path):
     handshake, so only the plaintext quic.version is recoverable.
     """
     import struct
-    from scapy.all import IP, UDP, wrpcap, Raw
+
+    from scapy.all import IP, UDP, Raw, wrpcap
 
     pcap_path = tmp_path / "quic_calib.pcap"
     hdr = (bytes([0xC3]) + struct.pack(">I", 0x00000001)

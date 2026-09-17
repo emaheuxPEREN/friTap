@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 """
 PCAPNG output handler with Decryption Secrets Block (DSB).
@@ -10,18 +9,25 @@ keylog file.
 """
 
 from __future__ import annotations
+
 import logging
 import time
-from typing import IO, List, Optional, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, List, Optional
 
-from .base import OutputHandler
-from .dedup import KeyDeduplicator
-from .pcapng_blocks import build_shb, build_idb, build_dsb, build_epb, EPB_FLUSH_INTERVAL
 from ..constants import SSL_READ
 from ..sinks.tcp_state import TcpSessionTracker, build_framed_packet_from_fields
+from .base import OutputHandler
+from .dedup import KeyDeduplicator
+from .pcapng_blocks import (
+    EPB_FLUSH_INTERVAL,
+    build_dsb,
+    build_epb,
+    build_idb,
+    build_shb,
+)
 
 if TYPE_CHECKING:
-    from ..events import EventBus, KeylogEvent, DatalogEvent
+    from ..events import DatalogEvent, EventBus, KeylogEvent
 
 
 class PcapngOutputHandler(OutputHandler):
@@ -42,7 +48,7 @@ class PcapngOutputHandler(OutputHandler):
 
     def setup_with_file(self, file_obj: IO, event_bus: "EventBus") -> None:
         """Set up with an already-open file handle (used by LivePcapngHandler)."""
-        from ..events import KeylogEvent, DatalogEvent
+        from ..events import DatalogEvent, KeylogEvent
         self._file = file_obj
         self._file.write(build_shb())
         self._file.write(build_idb())

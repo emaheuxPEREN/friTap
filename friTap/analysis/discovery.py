@@ -33,7 +33,7 @@ import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 
 from friTap import discovery_base
 

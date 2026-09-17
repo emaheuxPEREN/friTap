@@ -14,6 +14,7 @@ import psutil
 
 from friTap.constants import build_infrastructure_bpf
 
+from .android import Android
 from .pcap_utility import is_pcapng_filename
 
 # scapy emits "WARNING: No libpcap provider available ! pcap won't be used" from
@@ -74,8 +75,6 @@ finally:
     )
     del _scapy_prev_level
 
-from .android import Android
- 
 INVALID_IPV4 = "0.0.0.0"
 INVALID_IPV6 = "::"
 
